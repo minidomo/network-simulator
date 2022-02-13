@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from threading import Timer
 import socket
 import struct
