@@ -4,7 +4,7 @@ import struct
 
 from threading import Thread
 
-#
+
 def pack(command, seq, sessionID):
     return struct.pack("!HBBII", 0xC356, 1, command, seq, sessionID)
 
@@ -25,6 +25,7 @@ def sendPacket(command, sessionID, destination, data):
 
 
 class Client:
+
     def __init__(self, sessionID, address):
         self.sessionID = sessionID
         self.connected = True
@@ -34,8 +35,6 @@ class Client:
     def disconnect(self):
         self.connected = False
 
-
-#
 
 client_map = {}
 MAGIC_NUMBER = 0xC356
@@ -89,20 +88,15 @@ def handle_socket(local_addr):
                         break
                     elif client.packetNumber == seq:
                         print(
-                            str(client.sessionID)
-                            + " ["
-                            + str(seq)
-                            + "] Duplicated Packet!"
-                        )
+                            str(client.sessionID) + " [" + str(seq) +
+                            "] Duplicated Packet!")
                     for i in range(client.packetNumber + 1, seq):
-                        print(str(client.sessionID) + " [" + str(i) + "] Lost Packet!")
+                        print(
+                            str(client.sessionID) + " [" + str(i) +
+                            "] Lost Packet!")
                     print(
-                        str(client.sessionID)
-                        + " ["
-                        + str(seq)
-                        + "] "
-                        + raw_packet[1].decode("utf-8")
-                    )
+                        str(client.sessionID) + " [" + str(seq) + "] " +
+                        raw_packet[1].decode("utf-8"))
                     client.packetNumber = seq
                     sendPacket(2, client.sessionID, client.address, None)
                 elif command == 3:
@@ -118,7 +112,7 @@ if __name__ == "__main__":
     print("Server started")
     local_port = 1234
     local_addr = (b"0.0.0.0", local_port)
-    t1 = Thread(target=handle_socket, args=(local_addr,), daemon=True)
+    t1 = Thread(target=handle_socket, args=(local_addr, ), daemon=True)
     t1.start()
 
     # start a second thread to handle the keyboard
