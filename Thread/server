@@ -2,127 +2,93 @@
 
 import sys
 import socket
-import struct
-
 from threading import Thread
+from typing import Any
+
+sys.path.append(sys.path[0] + "/..")
+
+from src import constants as Constants
+from src.structures import ClientData
+from src import util
+
+_client_data_map: "dict[int, ClientData]" = {}
+_max_length = 100
+_count = 0
+_socket: socket.socket = None
 
 
-def pack(command, seq, sessionID):
-    return struct.pack("!HBBII", 0xC356, 1, command, seq, sessionID)
+def send_packet(command: int, session_id: int, destination: Any, data: str = None):
+    global _count
 
-
-def unpack(data):
-    return struct.unpack("!HBBII", data)
-
-
-count = 0
-
-
-def sendPacket(command, sessionID, destination, data):
-    global count
-    header = pack(command, count, sessionID)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.sendto(header, destination)
-    count += 1
-
-
-class Client:
-
-    def __init__(self, sessionID, address):
-        self.sessionID = sessionID
-        self.connected = True
-        self.packetNumber = 0
-        self.address = address
-
-    def disconnect(self):
-        self.connected = False
-
-
-client_map = {}
-MAGIC_NUMBER = 0xC356
-MAGIC_CHARACTER = b"|"
-max_length = 100
+    data_msg = util.pack(command, _count, session_id, data)
+    _socket.sendto(data_msg, destination)
+    _count += 1
 
 
 def server_close():
-    print("entering server close")
-    for client in client_map:
-        sendPacket(0, client.sessionID, client.address, None)
-    header = pack(5, 0, 0)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.sendto(header, ("127.0.0.1", 1234))
+    for client_data in _client_data_map.values():
+        send_packet(0, client_data.session_id, client_data.address)
+
+    _socket.close()
 
 
 def handle_keyboard():
-    print("Listening for keyboard input")
     while True:
         text = sys.stdin.readline()
-        # Terminates server if input is EOF or 'q'
+        # Terminates server if input is EOF or "q"
         if not text or (text == "q\n" and sys.stdin.isatty()):
             server_close()  # do gracefully end here
             break
 
 
-def handle_socket(local_addr):
-    print("New Thread Created")
-    my_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    my_socket.bind(local_addr)
-    print("Socket bound")
+def handle_socket():
+
+    def log(session_id: int, seq: "int | None", msg: str):
+        if (seq == None):
+            print("0x%08x %s" % (session_id, msg))
+        else:
+            print("0x%08x [%d] %s" % (session_id, seq, msg))
+
     while True:
-        packet, remote_addr = my_socket.recvfrom(max_length)
+        packet, remote_addr = _socket.recvfrom(_max_length)
 
-        raw_packet = packet.split(MAGIC_CHARACTER, 1)
-        magic_num, num, command, seq, sessionId = unpack(raw_packet[0])
+        packet_parts = packet.split(Constants.MAGIC_CHARACTER.encode("utf-8"), 1)
+        packet_header = packet_parts[0]
+        magic_num, _unused, command, seq, session_id = util.unpack(packet_header)
 
-        if command == 5:
-            break
-        if magic_num == MAGIC_NUMBER:
-            sessionId_str = str(sessionId)
-            if sessionId_str not in client_map and command == 0:
-                client_map[sessionId_str] = Client(sessionId, remote_addr)
-                print("Received hello")
-                sendPacket(0, sessionId, remote_addr, None)
-            else:
-                client = client_map[sessionId_str]
-                if command == 1:
-                    if seq < client.packetNumber:
-                        server_close()
-                        break
-                    elif client.packetNumber == seq:
-                        print(
-                            str(client.sessionID) + " [" + str(seq) +
-                            "] Duplicated Packet!")
-                    for i in range(client.packetNumber + 1, seq):
-                        print(
-                            str(client.sessionID) + " [" + str(i) +
-                            "] Lost Packet!")
-                    print(
-                        str(client.sessionID) + " [" + str(seq) + "] " +
-                        raw_packet[1].decode("utf-8"))
-                    client.packetNumber = seq
-                    sendPacket(2, client.sessionID, client.address, None)
-                elif command == 3:
-                    sendPacket(3, sessionId, remote_addr, None)
-                    del client_map[sessionId_str]
-                else:
-                    server_close()
+        if (magic_num == Constants.MAGIC_NUMBER):
+            if command == Constants.Command.HELLO.value:
+                if session_id in _client_data_map:
+                    print("duplicate hello")
                     break
+                _client_data_map[session_id] = ClientData(session_id, remote_addr)
+                send_packet(Constants.Command.HELLO.value, session_id, remote_addr)
+                log(session_id, seq, "HELLO from client.")
+            elif command == Constants.Command.DATA.value:
+                data = packet_parts[1].decode("utf-8")
+                send_packet(Constants.Command.ALIVE.value, session_id, remote_addr)
+                log(session_id, seq, "DATA from client. %s" % data)
+            elif command == Constants.Command.GOODBYE.value:
+                if session_id not in _client_data_map:
+                    print("missing client data")
+                    break
+                send_packet(Constants.Command.GOODBYE.value, session_id, remote_addr)
+                log(session_id, seq, "GOODBYE from client.")
+                del _client_data_map[session_id]
+            else:
+                print("Invalid command: %d" % command)
+                break
 
 
 if __name__ == "__main__":
-    # local_port = int(sys.argv[1])
-    print("Server started")
-    local_port = 1234
-    local_addr = (b"0.0.0.0", local_port)
-    t1 = Thread(target=handle_socket, args=(local_addr, ), daemon=True)
+    portnum = int(sys.argv[1])
+    address = (b"0.0.0.0", portnum)
+    _socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    _socket.bind(address)
+
+    print("Waiting on port %d..." % portnum)
+
+    t1 = Thread(target=handle_socket, daemon=True)
     t1.start()
 
-    # start a second thread to handle the keyboard
-    t2 = Thread(target=handle_keyboard, daemon=True)
-    t2.start()
-
-    while t1.is_alive():
-        temp = 1
-
-    print("Server closing")
-    # t2 closes when main thread closes
+    handle_keyboard()

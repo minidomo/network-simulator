@@ -1,1 +1,3 @@
-temp*
+__pycache__
+client_run*
+server_run*
