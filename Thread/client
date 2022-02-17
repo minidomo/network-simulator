@@ -1,36 +1,106 @@
 #!/usr/bin/env python3
 
+import sys
 import socket
 import random
-import sys
+from threading import Thread
+from typing import Any
 
 sys.path.append(sys.path[0] + "/..")
 
 from src import constants as Constants
 from src import util
 
+_session_id = random.randint(0, 2**32)
+
+_max_length = 100
 _seq = 0
-_session_id = random.randint(1, 100)
+_socket: socket.socket = None
+
+_server_address: "tuple[str,int]" = None
+
+_queue = 0  # number of ALIVE waiting for
 
 
-# https://stackoverflow.com/questions/3393612/run-certain-code-every-n-seconds
-def test_send(hostname: str, portnum: int):
+def send_packet(command: int, data: str = None):
     global _seq
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    exclude_set = {"ALIVE"}
+    data_msg = util.pack(command, _seq, _session_id, data)
+    _socket.sendto(data_msg, _server_address)
+    _seq += 1
 
-    for cur_enum in Constants.Command:
-        if (cur_enum.name in exclude_set):
-            continue
-        msg = "something here" if cur_enum == Constants.Command.DATA else None
-        data_msg = util.pack(cur_enum.value, _seq, _session_id, msg)
-        s.sendto(data_msg, (hostname, portnum))
-        _seq += 1
+
+def handle_keyboard():
+    global _queue
+
+    while True:
+        text = sys.stdin.readline()
+        # Terminates server if input is EOF or "q"
+        if not text or (text == "q\n" and sys.stdin.isatty()):
+            send_packet(Constants.Command.GOODBYE.value)
+            break
+        else:
+            send_packet(Constants.Command.DATA.value, text)
+            _queue += 1
+            # check for ALIVE
+
+
+def handle_socket():
+    global _queue
+
+    def log(session_id: int, seq: "int | None", msg: str):
+        if (seq == None):
+            print("0x%08x %s" % (session_id, msg))
+        else:
+            print("0x%08x [%d] %s" % (session_id, seq, msg))
+
+    while True:
+        packet, remote_addr = _socket.recvfrom(_max_length)
+
+        magic_num, _unused, command, seq, session_id = util.unpack(packet)
+
+        if (magic_num == Constants.MAGIC_NUMBER):
+            if command == Constants.Command.GOODBYE.value:
+                log(session_id, seq, "GOODBYE from server.")
+                break
+            elif command == Constants.Command.ALIVE.value:
+                # log(session_id, seq, "ALIVE from server.")
+                _queue -= 1
+            else:
+                print("Invalid command: %d" % command)
+                break
+
+
+def hello_exchange():
+    # stop and wait
+    done = False
+    send_packet(Constants.Command.HELLO.value)
+    while not done:
+        packet, remote_addr = _socket.recvfrom(_max_length)
+        magic_num, version, command, seq, session_id = util.unpack(packet)
+        if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
+            done = command == Constants.Command.HELLO.value
 
 
 if __name__ == "__main__":
-    print("Client Starting")
     hostname = sys.argv[1]
     portnum = int(sys.argv[2])
-    test_send(hostname, portnum)
+    _server_address = (hostname, portnum)
+    _socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    hello_exchange()
+
+    t1 = Thread(target=handle_socket, daemon=True)
+    t1.start()
+
+    t2 = Thread(target=handle_keyboard, daemon=True)
+    t2.start()
+
+    while t1.is_alive() and t2.is_alive():
+        pass
+
+    try:
+        _socket.shutdown(socket.SHUT_WR)
+    except:
+        pass
+    _socket.close()

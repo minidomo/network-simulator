@@ -2,8 +2,10 @@
 
 import sys
 import socket
-from threading import Thread
+from threading import Thread, Timer
 from typing import Any
+import signal
+import time
 
 sys.path.append(sys.path[0] + "/..")
 
@@ -41,6 +43,29 @@ def handle_keyboard():
             break
 
 
+def close_client(session_id: int):
+    global _client_data_map
+    client = _client_data_map[session_id]
+    send_packet(Constants.Command.GOODBYE.value, session_id, client.address)
+    del _client_data_map[session_id]
+
+
+def handle_timer():
+    global _client_data_map
+
+    interval = 30
+    ti = Timer(interval, handle_timer)
+    ti.daemon = True
+    ti.start()
+
+    for session_id in list(_client_data_map.keys()):
+        client = _client_data_map[session_id]
+        if client.timestamp != -1 and time.time() - client.timestamp > interval:
+            # send_packet(Constants.Command.GOODBYE.value, session_id, client.address)
+            # del _client_data_map[session_id]
+            close_client(session_id)
+
+
 def handle_socket():
 
     def log(session_id: int, seq: "int | None", msg: str):
@@ -49,35 +74,53 @@ def handle_socket():
         else:
             print("0x%08x [%d] %s" % (session_id, seq, msg))
 
+    def check_client(session_id: int, seq: int):
+        client = _client_data_map[session_id]
+        if seq > client.packet_number + 1:
+            for i in range(client.packet_number + 1, seq):
+                log(session_id, i, "Lost Packet!")
+        elif seq == client.packet_number:
+            log(session_id, seq, "Duplicate Packet")
+        elif seq < client.packet_number:
+            close_client(session_id)
+            return False
+        return True
+
     while True:
         packet, remote_addr = _socket.recvfrom(_max_length)
 
-        packet_parts = packet.split(Constants.MAGIC_CHARACTER.encode("utf-8"), 1)
-        packet_header = packet_parts[0]
-        magic_num, _unused, command, seq, session_id = util.unpack(packet_header)
+        packet_header = packet[:Constants.HEADER_SIZE]
+        magic_num, version, command, seq, session_id = util.unpack(packet_header)
 
-        if (magic_num == Constants.MAGIC_NUMBER):
+        if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
+            if session_id in _client_data_map:
+                if not check_client(session_id, seq):
+                    continue
+
             if command == Constants.Command.HELLO.value:
                 if session_id in _client_data_map:
-                    print("duplicate hello")
-                    break
+                    close_client(session_id)
+                    continue
                 _client_data_map[session_id] = ClientData(session_id, remote_addr)
                 send_packet(Constants.Command.HELLO.value, session_id, remote_addr)
-                log(session_id, seq, "HELLO from client.")
+                log(session_id, seq, "Session created")
+                _client_data_map[session_id].timestamp = time.time()
             elif command == Constants.Command.DATA.value:
-                data = packet_parts[1].decode("utf-8")
+                data = packet[Constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
                 send_packet(Constants.Command.ALIVE.value, session_id, remote_addr)
                 log(session_id, seq, data)
+                _client_data_map[session_id].timestamp = time.time()
             elif command == Constants.Command.GOODBYE.value:
                 if session_id not in _client_data_map:
-                    print("missing client data")
-                    break
+                    continue
                 send_packet(Constants.Command.GOODBYE.value, session_id, remote_addr)
                 log(session_id, seq, "GOODBYE from client.")
-                del _client_data_map[session_id]
+                close_client(session_id)
             else:
                 print("Invalid command: %d" % command)
                 break
+            if session_id in _client_data_map:
+                _client_data_map[session_id].packet_number = seq
 
 
 if __name__ == "__main__":
@@ -90,5 +133,7 @@ if __name__ == "__main__":
 
     t1 = Thread(target=handle_socket, daemon=True)
     t1.start()
+
+    handle_timer()
 
     handle_keyboard()

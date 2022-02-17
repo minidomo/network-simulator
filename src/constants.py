@@ -1,7 +1,8 @@
 from enum import Enum as _Enum
 
 MAGIC_NUMBER = 0xC356
-MAGIC_CHARACTER = "|"
+HEADER_SIZE = 12
+VERSION = 1
 
 
 class Command(_Enum):

@@ -3,10 +3,10 @@ from . import constants as _Constants
 
 
 def pack(command: int, seq: int, session_id: int, data: str = None) -> bytes:
-    header = _struct.pack("!HBBII", _Constants.MAGIC_NUMBER, 1, command, seq, session_id)
+    header = _struct.pack("!HBBII", _Constants.MAGIC_NUMBER, _Constants.VERSION, command, seq, session_id)
     if data == None:
         return header
-    return header + (_Constants.MAGIC_CHARACTER + data).encode("utf-8")
+    return header + data.encode("utf-8", "replace")
 
 
 def unpack(data: bytes) -> "tuple[int, int, int, int, int]":
