@@ -61,8 +61,6 @@ def handle_timer():
     for session_id in list(_client_data_map.keys()):
         client = _client_data_map[session_id]
         if client.timestamp != -1 and time.time() - client.timestamp > interval:
-            # send_packet(Constants.Command.GOODBYE.value, session_id, client.address)
-            # del _client_data_map[session_id]
             close_client(session_id)
 
 
