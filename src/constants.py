@@ -3,6 +3,7 @@ from enum import Enum as _Enum
 MAGIC_NUMBER = 0xC356
 HEADER_SIZE = 12
 VERSION = 1
+BUFFER_SIZE = 4096
 
 
 class Command(_Enum):

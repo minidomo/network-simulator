@@ -13,7 +13,6 @@ from src import util
 
 _session_id = random.randint(0, 2**32)
 
-_max_length = 100
 _seq = 0
 _socket: socket.socket = None
 
@@ -55,7 +54,7 @@ def handle_socket():
             print("0x%08x [%d] %s" % (session_id, seq, msg))
 
     while True:
-        packet, remote_addr = _socket.recvfrom(_max_length)
+        packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
 
         magic_num, _unused, command, seq, session_id = util.unpack(packet)
 
@@ -64,7 +63,6 @@ def handle_socket():
                 log(session_id, seq, "GOODBYE from server.")
                 break
             elif command == Constants.Command.ALIVE.value:
-                # log(session_id, seq, "ALIVE from server.")
                 _queue -= 1
             else:
                 print("Invalid command: %d" % command)
@@ -76,7 +74,7 @@ def hello_exchange():
     done = False
     send_packet(Constants.Command.HELLO.value)
     while not done:
-        packet, remote_addr = _socket.recvfrom(_max_length)
+        packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
         magic_num, version, command, seq, session_id = util.unpack(packet)
         if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
             done = command == Constants.Command.HELLO.value
@@ -100,7 +98,7 @@ if __name__ == "__main__":
         pass
 
     try:
-        _socket.shutdown(socket.SHUT_WR)
+        _socket.shutdown(socket.SHUT_RDWR)
     except:
         pass
     _socket.close()
