@@ -15,8 +15,5 @@ class ClientData:
         self.address = address
         self.timestamp = -1
 
-    def __del__(self):
-        print("0x%08x %s" % (self.session_id, "Session Closed"))
-
     def disconnect(self):
         self.connected = False
