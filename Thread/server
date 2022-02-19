@@ -52,9 +52,9 @@ def check_client(session_id: int, seq: int):
     client = _client_data_map[session_id]
     if seq > client.packet_number + 1:
         for i in range(client.packet_number + 1, seq):
-            log(session_id, i, "Lost Packet!")
+            log(session_id, i, "Lost packet!")
     elif seq == client.packet_number:
-        log(session_id, seq, "Duplicate Packet")
+        log(session_id, seq, "Duplicate packet!")
     elif seq < client.packet_number:
         client_close(session_id)
         return False
@@ -62,8 +62,6 @@ def check_client(session_id: int, seq: int):
 
 
 def client_close(session_id: int):
-    global _client_data_map
-
     client = _client_data_map[session_id]
     send_packet(Constants.Command.GOODBYE.value, session_id, client.address)
     log(session_id, None, "Session Closed")
@@ -96,13 +94,12 @@ def handle_keyboard():
 
 def handle_timer():
     try:
-        interval = 5
         while True:
             for session_id in list(_client_data_map.keys()):
                 client = _client_data_map[session_id]
-                if client.timestamp != -1 and time.time() - client.timestamp > interval:
+                if client.timestamp != -1 and time.time() - client.timestamp > Constants.TIMEOUT_INTERVAL:
                     client_close(session_id)
-            time.sleep(interval)
+            time.sleep(Constants.TIMEOUT_INTERVAL)
     except:
         pass
 
