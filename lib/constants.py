@@ -8,7 +8,14 @@ TIMEOUT_INTERVAL = 5
 
 
 class Command(_Enum):
+    DEFAULT = -1
     HELLO = 0
     DATA = 1
     ALIVE = 2
     GOODBYE = 3
+
+
+class Response(_Enum):
+    NORMAL = 0
+    IGNORE = 1
+    CLOSE = 2
