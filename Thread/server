@@ -92,7 +92,7 @@ def handle_keyboard():
 
 def handle_timer():
     try:
-        while True:
+        while not _server_done:
             for session_id in list(_client_data_map.keys()):
                 client = _client_data_map[session_id]
                 if client.timestamp != -1 and time.time() - client.timestamp > Constants.TIMEOUT_INTERVAL:
@@ -104,8 +104,11 @@ def handle_timer():
 
 def handle_socket():
     try:
-        while True:
+        while not _server_done:
             packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
+
+            if _server_done:
+                break
 
             packet_header = packet[:Constants.HEADER_SIZE]
             magic_num, version, command, seq, session_id = util.unpack(packet_header)
@@ -153,7 +156,7 @@ if __name__ == "__main__":
     t1 = Thread(target=handle_socket, daemon=True)
     t1.start()
 
-    t2 = Thread(target=handle_timer, daemon=True)
+    t2 = Thread(target=handle_timer)
     t2.start()
 
     t3 = Thread(target=handle_print)
@@ -161,6 +164,7 @@ if __name__ == "__main__":
 
     handle_keyboard()
 
+    t2.join()
     t3.join()
 
     print_queue_messages()
