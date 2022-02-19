@@ -87,6 +87,7 @@ def print_queue_messages(limit: int = None):
         sys.stdout.write(output)
 
 
+# Returns a Constants.Response depending on if the received packet was valid
 def server_response(packet: bytes, address: "tuple[str,int]") -> Constants.Response:
     if _server_done:
         return Constants.Response.IGNORE
@@ -100,49 +101,50 @@ def server_response(packet: bytes, address: "tuple[str,int]") -> Constants.Respo
     if magic_num != Constants.MAGIC_NUMBER or version != Constants.VERSION:
         return Constants.Response.IGNORE
 
-    if session_id in _client_data_map:
-        client = _client_data_map[session_id]
+    with _client_map_lock:
+        if session_id in _client_data_map:
+            client = _client_data_map[session_id]
 
-        # existing session id but from different address
-        if address[0] != client.address[0] or address[1] != client.address[1]:
-            return Constants.Response.IGNORE
-
-        if seq == client.packet_number:
-            # duplicate packet
-
-            if ((command == Constants.Command.HELLO.value or command == Constants.Command.DATA.value or
-                 command == Constants.Command.GOODBYE.value) and command == client.previous_command):
-                log(session_id, seq, "Duplicate packet!")
+            # existing session id but from different address
+            if address[0] != client.address[0] or address[1] != client.address[1]:
                 return Constants.Response.IGNORE
-            else:
+
+            if seq == client.packet_number:
+                # duplicate packet
+
+                if (command in (Constants.Command.HELLO.value, Constants.Command.DATA.value,
+                                Constants.Command.GOODBYE.value) and command == client.previous_command):
+                    log(session_id, seq, "Duplicate packet!")
+                    return Constants.Response.IGNORE
+                else:
+                    return Constants.Response.CLOSE
+            elif seq < client.packet_number:
+                # out of order delivery (could also be wrap around but will not be tested on it)
                 return Constants.Response.CLOSE
-        elif seq < client.packet_number:
-            # out of order delivery (could also be wrap around but will not be tested on it)
-            return Constants.Response.CLOSE
-        elif seq > client.packet_number + 1:
-            for i in range(client.packet_number + 1, seq):
-                log(session_id, i, "Lost packet!")
-            client.packet_number = seq
-            return Constants.Response.Ignore
+            elif seq > client.packet_number + 1:
+                for i in range(client.packet_number + 1, seq):
+                    log(session_id, i, "Lost packet!")
+                client.packet_number = seq
+                return Constants.Response.Ignore
+            else:
+                if command == Constants.Command.HELLO.value:
+                    return Constants.Response.CLOSE
+                elif command == Constants.Command.ALIVE.value:
+                    return Constants.Response.CLOSE
+                elif command == Constants.Command.GOODBYE.value:
+                    return Constants.Response.NORMAL
+                elif command == Constants.Command.DATA.value:
+                    return Constants.Response.NORMAL
+                else:
+                    return Constants.Response.CLOSE
         else:
-            if command == Constants.Command.HELLO.value:
-                return Constants.Response.CLOSE
-            elif command == Constants.Command.ALIVE.value:
-                return Constants.Response.CLOSE
-            elif command == Constants.Command.GOODBYE.value:
-                return Constants.Response.NORMAL
-            elif command == Constants.Command.DATA.value:
-                return Constants.Response.NORMAL
-            else:
-                return Constants.Response.CLOSE
-    else:
-        if seq == 0:
-            if command == Constants.Command.HELLO.value:
-                return Constants.Response.NORMAL
+            if seq == 0:
+                if command == Constants.Command.HELLO.value:
+                    return Constants.Response.NORMAL
+                else:
+                    return Constants.Response.IGNORE
             else:
                 return Constants.Response.IGNORE
-        else:
-            return Constants.Response.IGNORE
 
 
 def handle_print():
@@ -182,7 +184,6 @@ def handle_socket():
         response = server_response(packet, remote_addr)
 
         if response == Constants.Response.IGNORE:
-            # might need to print for stuff like duplicate packets
             continue
         elif response == Constants.Response.NORMAL:
             packet_header = packet[:Constants.HEADER_SIZE]
@@ -224,46 +225,6 @@ def handle_socket():
             session_id = util.unpack(packet_header)[4]
 
             client_close(session_id)
-
-        # everything below should be gone
-        # if _server_done:
-        #     break
-
-        # packet_header = packet[:Constants.HEADER_SIZE]
-        # magic_num, version, command, seq, session_id = util.unpack(packet_header)
-
-        # if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
-        #     if not check_client(session_id, seq):
-        #         continue
-
-        #     if command == Constants.Command.HELLO.value:
-        #         # if session_id in _client_data_map:
-        #         #     client_close(session_id)
-        #         #     continue
-        #         with _client_map_lock:
-        #             _client_data_map[session_id] = ClientData(session_id, remote_addr)
-        #             send_packet(Constants.Command.HELLO.value, session_id, remote_addr)
-        #             log(session_id, seq, "Session created")
-        #             _client_data_map[session_id].timestamp = time.time()
-        #     elif command == Constants.Command.DATA.value:
-        #         data = packet[Constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
-        #         send_packet(Constants.Command.ALIVE.value, session_id, remote_addr)
-        #         log(session_id, seq, data)
-        #         with _client_map_lock:
-        #             if session_id in _client_data_map:
-        #                 _client_data_map[session_id].timestamp = time.time()
-        #     elif command == Constants.Command.GOODBYE.value:
-        #         if session_id not in _client_data_map:
-        #             continue
-        #         send_packet(Constants.Command.GOODBYE.value, session_id, remote_addr)
-        #         log(session_id, seq, "GOODBYE from client.")
-        #         client_close(session_id)
-        #     else:
-        #         add_print_message(f"Invalid command: {command}")
-        #     with _client_map_lock:
-        #         if session_id in _client_data_map:
-        #             _client_data_map[session_id].packet_number = seq
-        #             _client_data_map[session_id].previous_command = command
 
 
 if __name__ == "__main__":
