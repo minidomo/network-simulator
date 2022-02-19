@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 
+import setup_path  # pylint: disable=unused-import
 import sys
 import socket
 import random
 from threading import Thread
-from typing import Any
-
-sys.path.append(sys.path[0] + "/..")
-
-from src import constants as Constants
-from src import util
+from lib import constants as Constants
+from lib import util
 
 _session_id = random.randint(0, 2**32)
 
@@ -48,24 +45,24 @@ def handle_socket():
     global _queue
 
     def log(session_id: int, seq: "int | None", msg: str):
-        if (seq == None):
-            print("0x%08x %s" % (session_id, msg))
+        if seq is None:
+            print(f"0x{session_id:08x} {msg}")
         else:
-            print("0x%08x [%d] %s" % (session_id, seq, msg))
+            print(f"0x{session_id:08x} [{seq}] {msg}")
 
     while True:
         packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
 
-        magic_num, _unused, command, seq, session_id = util.unpack(packet)
+        magic_num, version, command, seq, session_id = util.unpack(packet)
 
-        if (magic_num == Constants.MAGIC_NUMBER):
+        if magic_num == Constants.MAGIC_NUMBER:
             if command == Constants.Command.GOODBYE.value:
                 log(session_id, seq, "GOODBYE from server.")
                 break
             elif command == Constants.Command.ALIVE.value:
                 _queue -= 1
             else:
-                print("Invalid command: %d" % command)
+                print(f"Invalid command: {command}")
                 break
 
 

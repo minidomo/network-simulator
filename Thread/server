@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 
+import setup_path  # pylint: disable=unused-import
 import sys
 import socket
 import time
 from queue import Queue
 from threading import Thread
 from typing import Any
-
-sys.path.append(sys.path[0] + "/..")
-
-from src import constants as Constants
-from src.structures import ClientData
-from src import util
+from lib import constants as Constants
+from lib.structures import ClientData
+from lib import util
 
 _client_data_map: "dict[int, ClientData]" = {}
 _seq = 0
@@ -42,10 +40,10 @@ def server_close():
 
 
 def log(session_id: int, seq: "int | None", msg: str):
-    if (seq == None):
-        add_print_message("0x%08x %s" % (session_id, msg))
+    if seq is None:
+        add_print_message(f"0x{session_id:08x} {msg}")
     else:
-        add_print_message("0x%08x [%d] %s" % (session_id, seq, msg))
+        add_print_message(f"0x{session_id:08x} [{seq}] {msg}")
 
 
 def check_client(session_id: int, seq: int):
@@ -69,7 +67,7 @@ def client_close(session_id: int):
 
 
 def print_queue_messages(limit: int = None):
-    size = _queue.qsize() if limit == None else min(limit, _queue.qsize())
+    size = _queue.qsize() if limit is None else min(limit, _queue.qsize())
     output = ""
     for _ in range(size):
         output += _queue.get() + "\n"
@@ -137,7 +135,7 @@ def handle_socket():
                     log(session_id, seq, "GOODBYE from client.")
                     client_close(session_id)
                 else:
-                    add_print_message("Invalid command: %d" % command)
+                    add_print_message(f"Invalid command: {command}")
                 if session_id in _client_data_map:
                     _client_data_map[session_id].packet_number = seq
     except:
@@ -150,7 +148,7 @@ if __name__ == "__main__":
     _socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     _socket.bind(address)
 
-    add_print_message("Waiting on port %d..." % portnum)
+    add_print_message(f"Waiting on port {portnum}...")
 
     t1 = Thread(target=handle_socket, daemon=True)
     t1.start()
