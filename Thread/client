@@ -9,12 +9,9 @@ from lib import constants as Constants
 from lib import util
 
 _session_id = random.randint(0, 2**32)
-
 _seq = 0
 _socket: socket.socket = None
-
 _server_address: "tuple[str,int]" = None
-
 _queue = 0  # number of ALIVE waiting for
 
 
@@ -77,7 +74,9 @@ def hello_exchange():
             done = command == Constants.Command.HELLO.value
 
 
-if __name__ == "__main__":
+def main():
+    global _server_address, _socket
+
     hostname = sys.argv[1]
     portnum = int(sys.argv[2])
     _server_address = (hostname, portnum)
@@ -99,3 +98,7 @@ if __name__ == "__main__":
     except:
         pass
     _socket.close()
+
+
+if __name__ == "__main__":
+    main()

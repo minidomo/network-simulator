@@ -5,8 +5,7 @@ import sys
 import socket
 import time
 from queue import Queue
-from threading import Thread, Lock
-from typing import Any
+from threading import Thread, RLock
 from lib import constants as Constants
 from lib.structures import ClientData
 from lib import util
@@ -16,7 +15,7 @@ _seq = 0  # Packet sequence number
 _socket: socket.socket = None
 _queue = Queue()  # Print Queue
 _server_done = False
-_client_map_lock = Lock()
+_client_map_lock = RLock()
 
 
 def add_print_message(message: str):
@@ -25,7 +24,7 @@ def add_print_message(message: str):
 
 # Send a packet by creating the header and appending any data to it
 # _seq is incremented every time this function is called
-def send_packet(command: int, session_id: int, destination: Any, data: str = None):
+def send_packet(command: int, session_id: int, destination: "tuple[str,int]", data: str = None):
     global _seq
 
     data_msg = util.pack(command, _seq, session_id, data)
@@ -49,23 +48,23 @@ def log(session_id: int, seq: "int | None", msg: str):
 # Checks the packet numbers of the client and prints out the appropriate response
 # Can close the client's session on a protocol error
 # Returns whether the client was closed
-def check_client(session_id: int, seq: int):
-    _client_map_lock.acquire()
-    if session_id in _client_data_map:
-        client = _client_data_map[session_id]
-        if seq > client.packet_number + 1:
-            for i in range(client.packet_number + 1, seq):
-                log(session_id, i, "Lost packet!")
-        elif seq == client.packet_number:
-            log(session_id, seq, "Duplicate packet!")
-        elif seq < client.packet_number:
-            _client_map_lock.release()
-            client_close(session_id)
-            return False
-        _client_map_lock.release()
-        return True
-    _client_map_lock.release()
-    return False
+# def check_client(session_id: int, seq: int):
+#     _client_map_lock.acquire()
+#     if session_id in _client_data_map:
+#         client = _client_data_map[session_id]
+#         if seq > client.packet_number + 1:
+#             for i in range(client.packet_number + 1, seq):
+#                 log(session_id, i, "Lost packet!")
+#         elif seq == client.packet_number:
+#             log(session_id, seq, "Duplicate packet!")
+#         elif seq < client.packet_number:
+#             _client_map_lock.release()
+#             client_close(session_id)
+#             return False
+#         _client_map_lock.release()
+#         return True
+#     _client_map_lock.release()
+#     return False
 
 
 # Close the session of a client by sending a GOODBYE and printing Session Closed
@@ -121,12 +120,10 @@ def server_response(packet: bytes, address: "tuple[str,int]") -> Constants.Respo
             elif seq < client.packet_number:
                 # out of order delivery (could also be wrap around but will not be tested on it)
                 return Constants.Response.CLOSE
-            elif seq > client.packet_number + 1:
-                for i in range(client.packet_number + 1, seq):
-                    log(session_id, i, "Lost packet!")
-                client.packet_number = seq
-                return Constants.Response.Ignore
             else:
+                if seq > client.packet_number + 1:
+                    for i in range(client.packet_number + 1, seq):
+                        log(session_id, i, "Lost packet!")
                 if command == Constants.Command.HELLO.value:
                     return Constants.Response.CLOSE
                 elif command == Constants.Command.ALIVE.value:
@@ -166,15 +163,12 @@ def handle_keyboard():
 def handle_timer():
     while not _server_done:
         for session_id in list(_client_data_map.keys()):
-            _client_map_lock.acquire()
-            if session_id in _client_data_map:
-                client = _client_data_map[session_id]
+            with _client_map_lock:
+                if session_id in _client_data_map:
+                    client = _client_data_map[session_id]
 
-                if client.timestamp != -1 and time.time() - client.timestamp > Constants.TIMEOUT_INTERVAL:
-                    _client_map_lock.release()
-                    client_close(session_id)
-            if _client_map_lock.locked():
-                _client_map_lock.release()
+                    if client.timestamp != -1 and time.time() - client.timestamp > Constants.TIMEOUT_INTERVAL:
+                        client_close(session_id)
         time.sleep(Constants.TIMEOUT_INTERVAL)
 
 
@@ -211,10 +205,10 @@ def handle_socket():
                         send_packet(Constants.Command.GOODBYE.value, session_id, remote_addr)
                         log(session_id, seq, "GOODBYE from client.")
 
-                # Even if the timer closes the client here since we are not in the lock,
-                # the result is the same because the timer calls client_close.
-                # No other threads modify _client_data_map
-                client_close(session_id)
+                    # Even if the timer closes the client here since we are not in the lock,
+                    # the result is the same because the timer calls client_close.
+                    # No other threads modify _client_data_map
+                    client_close(session_id)
 
             with _client_map_lock:
                 if session_id in _client_data_map:
@@ -227,7 +221,9 @@ def handle_socket():
             client_close(session_id)
 
 
-if __name__ == "__main__":
+def main():
+    global _socket
+
     portnum = int(sys.argv[1])
     address = (b"0.0.0.0", portnum)
     _socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -258,3 +254,7 @@ if __name__ == "__main__":
     print_queue_messages()
 
     _socket.close()
+
+
+if __name__ == "__main__":
+    main()
