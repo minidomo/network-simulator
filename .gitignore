@@ -2,3 +2,4 @@ __pycache__
 client_run*
 server_run*
 temp*
+venv/
