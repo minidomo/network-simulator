@@ -1,4 +1,6 @@
 {
-    "$schema": "https://json.schemastore.org/vsls.json",
-    "gitignore": "none"
+    "$schema": "http://json.schemastore.org/vsls",
+    "gitignore": "none",
+    "excludeFiles": [],
+    "hideFiles": []
 }
