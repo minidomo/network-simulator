@@ -4,24 +4,17 @@ import setup_path  # pylint: disable=unused-import
 import sys
 import socket
 import time
-from queue import Queue
 from threading import Thread, RLock
-from io import TextIOWrapper
 from lib import constants as Constants
-from lib.structures import ClientData
+from lib.structures import ClientData, BufferedWriter
 from lib import util
 
 _client_data_map: "dict[int, ClientData]" = {}
 _seq = 0  # Packet sequence number
 _socket: socket.socket = None
-_queue = Queue()  # Print Queue
 _server_done = False
 _client_map_lock = RLock()
-_sout: TextIOWrapper = None
-
-
-def add_print_message(message: str):
-    _queue.put(message)
+_bf = BufferedWriter(sys.stdout.fileno(), "w", 5000000, "utf-8")
 
 
 # Send a packet by creating the header and appending any data to it
@@ -42,9 +35,9 @@ def server_close():
 
 def log(session_id: int, seq: "int | None", msg: str):
     if seq is None:
-        add_print_message(f"0x{session_id:08x} {msg}")
+        _bf.write(f"0x{session_id:08x} {msg}")
     else:
-        add_print_message(f"0x{session_id:08x} [{seq}] {msg}")
+        _bf.write(f"0x{session_id:08x} [{seq}] {msg}")
 
 
 # Close the session of a client by sending a GOODBYE and printing Session Closed
@@ -55,15 +48,6 @@ def client_close(session_id: int):
             send_packet(Constants.Command.GOODBYE.value, session_id, client.address)
             log(session_id, None, "Session Closed")
             del _client_data_map[session_id]
-
-
-def print_queue_messages(limit: int = None):
-    size = _queue.qsize() if limit is None else min(limit, _queue.qsize())
-    if size > 0:
-        for _ in range(size):
-            _sout.write(_queue.get())
-            _sout.write("\n")
-        _sout.flush()
 
 
 # Returns a Constants.Response depending on if the received packet was valid
@@ -126,7 +110,7 @@ def server_response(packet: bytes, address: "tuple[str,int]") -> Constants.Respo
 
 def handle_print():
     while not _server_done:
-        print_queue_messages()
+        _bf.flush()
         time.sleep(2)
 
 
@@ -202,16 +186,13 @@ def handle_socket():
 
 def main():
     global _socket
-    global _sout
 
     portnum = int(sys.argv[1])
     address = (b"0.0.0.0", portnum)
     _socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     _socket.bind(address)
 
-    _sout = open(sys.stdout.fileno(), "w", buffering=5000000, encoding="utf-8")  # pylint: disable=consider-using-with
-
-    add_print_message(f"Waiting on port {portnum}...")
+    _bf.write(f"Waiting on port {portnum}...")
 
     t1 = Thread(target=handle_socket, daemon=True)
     t1.start()
@@ -232,10 +213,7 @@ def main():
     for session_id in list(_client_data_map.keys()):
         client_close(session_id)
 
-    # Ensure the queue is empty before the server exits
-    print_queue_messages()
-
-    _sout.close()
+    _bf.close()
     _socket.close()
 
 

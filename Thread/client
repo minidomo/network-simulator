@@ -28,8 +28,7 @@ def send_packet(command: int, data: str = None):
 
 
 def closing_client():
-    global _client_closing
-    global _waiting_message_time
+    global _client_closing, _waiting_message_time
 
     with _close_lock:
         if not _client_closing:
@@ -76,11 +75,11 @@ def handle_socket(finish_queue: Queue):
             print(f"0x{session_id:08x} [{seq}] {msg}")
 
     while True:
-        packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
+        packet, _ = _socket.recvfrom(Constants.BUFFER_SIZE)
 
         magic_num, version, command, seq, session_id = util.unpack(packet)
 
-        if magic_num == Constants.MAGIC_NUMBER:
+        if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
             if command == Constants.Command.GOODBYE.value:
                 log(session_id, seq, "GOODBYE from server.")
                 break
@@ -100,8 +99,8 @@ def hello_exchange():
         send_packet(Constants.Command.HELLO.value)
         done = False
         while not done:
-            packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
-            magic_num, version, command, seq, session_id = util.unpack(packet)
+            packet, _ = _socket.recvfrom(Constants.BUFFER_SIZE)
+            magic_num, version, command, _, _ = util.unpack(packet)
             if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
                 done = command == Constants.Command.HELLO.value
 
@@ -136,8 +135,8 @@ def main():
 
         try:
             _socket.shutdown(socket.SHUT_RDWR)
-        except:
-            pass
+        except Exception as ex:
+            print(ex)
         _socket.close()
     else:
         print("Did not receive HELLO from server")
