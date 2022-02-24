@@ -79,11 +79,13 @@ def client_close(session_id: int):
 
 def print_queue_messages(limit: int = None):
     size = _queue.qsize() if limit is None else min(limit, _queue.qsize())
-    output = ""
-    for _ in range(size):
-        output += _queue.get() + "\n"
-    if len(output) > 0:
+    if size > 0:
+        arr = [None] * size
+        for i in range(size):
+            arr[i] = _queue.get()
+        output = "\n".join(arr)
         sys.stdout.write(output)
+        sys.stdout.write("\n")
 
 
 # Returns a Constants.Response depending on if the received packet was valid
