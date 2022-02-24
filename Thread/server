@@ -6,6 +6,7 @@ import socket
 import time
 from queue import Queue
 from threading import Thread, RLock
+from io import TextIOWrapper
 from lib import constants as Constants
 from lib.structures import ClientData
 from lib import util
@@ -16,6 +17,7 @@ _socket: socket.socket = None
 _queue = Queue()  # Print Queue
 _server_done = False
 _client_map_lock = RLock()
+_sout: TextIOWrapper = None
 
 
 def add_print_message(message: str):
@@ -45,28 +47,6 @@ def log(session_id: int, seq: "int | None", msg: str):
         add_print_message(f"0x{session_id:08x} [{seq}] {msg}")
 
 
-# Checks the packet numbers of the client and prints out the appropriate response
-# Can close the client's session on a protocol error
-# Returns whether the client was closed
-# def check_client(session_id: int, seq: int):
-#     _client_map_lock.acquire()
-#     if session_id in _client_data_map:
-#         client = _client_data_map[session_id]
-#         if seq > client.packet_number + 1:
-#             for i in range(client.packet_number + 1, seq):
-#                 log(session_id, i, "Lost packet!")
-#         elif seq == client.packet_number:
-#             log(session_id, seq, "Duplicate packet!")
-#         elif seq < client.packet_number:
-#             _client_map_lock.release()
-#             client_close(session_id)
-#             return False
-#         _client_map_lock.release()
-#         return True
-#     _client_map_lock.release()
-#     return False
-
-
 # Close the session of a client by sending a GOODBYE and printing Session Closed
 def client_close(session_id: int):
     with _client_map_lock:
@@ -80,12 +60,10 @@ def client_close(session_id: int):
 def print_queue_messages(limit: int = None):
     size = _queue.qsize() if limit is None else min(limit, _queue.qsize())
     if size > 0:
-        arr = [None] * size
-        for i in range(size):
-            arr[i] = _queue.get()
-        output = "\n".join(arr)
-        sys.stdout.write(output)
-        sys.stdout.write("\n")
+        for _ in range(size):
+            _sout.write(_queue.get())
+            _sout.write("\n")
+        _sout.flush()
 
 
 # Returns a Constants.Response depending on if the received packet was valid
@@ -224,11 +202,14 @@ def handle_socket():
 
 def main():
     global _socket
+    global _sout
 
     portnum = int(sys.argv[1])
     address = (b"0.0.0.0", portnum)
     _socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     _socket.bind(address)
+
+    _sout = open(sys.stdout.fileno(), "w", buffering=5000000, encoding="utf-8")  # pylint: disable=consider-using-with
 
     add_print_message(f"Waiting on port {portnum}...")
 
@@ -254,6 +235,7 @@ def main():
     # Ensure the queue is empty before the server exits
     print_queue_messages()
 
+    _sout.close()
     _socket.close()
 
 
