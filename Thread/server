@@ -202,7 +202,6 @@ def handle_socket():
                 # after Session Closed is printed from the timer
                 with _client_map_lock:
                     if session_id in _client_data_map:
-                        send_packet(Constants.Command.GOODBYE.value, session_id, remote_addr)
                         log(session_id, seq, "GOODBYE from client.")
 
                     # Even if the timer closes the client here since we are not in the lock,
