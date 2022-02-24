@@ -16,7 +16,6 @@ _socket: socket.socket = None
 _server_address: "tuple[str,int]" = None
 _close_lock = RLock()
 _client_closing: bool = False
-_client_done: bool = False
 _waiting_message_time: int = -1
 
 
@@ -29,7 +28,6 @@ def send_packet(command: int, data: str = None):
 
 
 def closing_client():
-    global _close_lock
     global _client_closing
     global _waiting_message_time
 
@@ -41,8 +39,6 @@ def closing_client():
 
 
 def handle_timer(finish_queue: Queue):
-    global _waiting_message_time
-    global _client_closing
 
     while True:
         time.sleep(Constants.TIMEOUT_INTERVAL)
@@ -56,7 +52,6 @@ def handle_timer(finish_queue: Queue):
 
 
 def handle_keyboard():
-    global _client_done
     global _waiting_message_time
 
     while True:
