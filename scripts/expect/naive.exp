@@ -1,0 +1,59 @@
+#!/usr/local/bin/expect -f
+# For Testing purpose
+set timeout -1
+log_user 0
+spawn [lindex $argv 0] [lindex $argv 1] [lindex $argv 2]
+log_user 1
+match_max 100000
+sleep 1
+
+send -- "Hello World\r"
+expect -exact "Hello World\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "Test for empty line.\r"
+expect -exact "Test for empty line.\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "Test for long linellllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll\r"
+expect -exact "Test for long linellllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "Test for same line\r"
+expect -exact "Test for same line\r
+"
+send -- "Test for same line\r"
+expect -exact "Test for same line\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "Test for multi empty line\r"
+expect -exact "Test for multi empty line\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "\r"
+expect -exact "\r
+"
+send -- "Finish naive Test\r"
+expect -exact "Finish naive Test\r
+"
+send -- "q\r"
+expect eof

@@ -1,0 +1,9 @@
+#!/usr/local/bin/expect -f
+set timeout 30
+log_user 0
+spawn [lindex $argv 0] [lindex $argv 1]
+log_user 1
+sleep 1
+match_max 100000
+expect timeout	{send -- "q\r"}
+expect eof {exit}
