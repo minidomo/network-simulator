@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+
+import setup_path  # pylint: disable=unused-import
+import sys
+import random
+import pyuv
+from lib import constants as Constants
+from lib import util
+
+_session_id = random.randint(0, 2**32)
+_seq = 0
+_loop = None
+_socket = None
+_timer = None
+_keyboard = None
+_server_address: "tuple[str,int]" = None
+_timer_active: bool = False
+
+
+def send_packet(command: int, data: str = None):
+    global _seq
+
+    data_msg = util.pack(command, _seq, _session_id, data)
+    _socket.send(_server_address, data_msg)
+    _seq += 1
+
+
+def force_close():
+    _socket.stop_recv()
+    _timer.stop()
+    _loop.stop()
+
+
+def close_client(send: bool):
+    if _keyboard is not None:
+        _keyboard.stop_read()
+    if send:
+        _timer.start(force_close, Constants.TIMEOUT_INTERVAL, 0)
+        send_packet(Constants.Command.GOODBYE.value)
+    else:
+        force_close()
+
+
+def handle_timer(handle):  #might be wrong
+    global _timer_active
+
+    close_client(False)
+    _timer_active = False
+    _timer.stop()
+
+
+def handle_keyboard(handle, data: "bytes|None", error):
+    global _timer_active
+
+    # Terminates server if input is EOF or "q"
+    line = None if data is None else data.decode("utf-8", "replace")
+    if not line or (line == "q\n" and sys.stdin.isatty()):
+        close_client(True)
+    else:
+        if not _timer_active:
+            _timer_active = True
+            _timer.start(handle_timer, Constants.TIMEOUT_INTERVAL, 0)
+        send_packet(Constants.Command.DATA.value, line)
+
+
+def handle_socket(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error):
+    global _timer_active
+
+    def log(session_id: int, seq: "int | None", msg: str):
+        if seq is None:
+            print(f"0x{session_id:08x} {msg}")
+        else:
+            print(f"0x{session_id:08x} [{seq}] {msg}")
+
+    magic_num, version, command, seq, session_id = util.unpack(packet)
+
+    if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
+        if command == Constants.Command.GOODBYE.value:
+            log(session_id, seq, "GOODBYE from server.")
+            close_client(False)
+        elif command == Constants.Command.ALIVE.value:
+            _timer_active = False
+            _timer.stop()
+        else:
+            print(f"Invalid command: {command}")
+            close_client(True)
+
+
+def hello_exchange(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error):
+    global _keyboard
+
+    magic_num, version, command, _, _ = util.unpack(packet)
+    if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
+        if command == Constants.Command.HELLO.value:
+            _socket.stop_recv()
+            _socket.start_recv(handle_socket)
+
+            _keyboard = pyuv.TTY(_loop, sys.stdin.fileno(), True)
+            _keyboard.start_read(handle_keyboard)
+
+            _timer.stop()
+        else:
+            close_client(True)
+
+
+def main():
+    global _server_address, _socket, _timer, _loop
+
+    hostname = sys.argv[1]
+    portnum = int(sys.argv[2])
+    _server_address = (hostname, portnum)
+
+    _loop = pyuv.Loop.default_loop()
+
+    _socket = pyuv.UDP(_loop)
+    _socket.start_recv(hello_exchange)
+
+    _timer = pyuv.Timer(_loop)
+    _timer.start(handle_timer, Constants.TIMEOUT_INTERVAL, 0)
+
+    send_packet(Constants.Command.HELLO.value)
+
+    _loop.run()
+
+
+if __name__ == "__main__":
+    main()

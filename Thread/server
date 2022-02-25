@@ -13,6 +13,7 @@ _client_data_map: "dict[int, ClientData]" = {}
 _seq = 0  # Packet sequence number
 _socket: socket.socket = None
 _server_done = False
+_server_close_lock = RLock()
 _client_map_lock = RLock()
 _bf = BufferedWriter(sys.stdout.fileno(), "w", 5000000, "utf-8")
 
@@ -31,6 +32,7 @@ def server_close():
     global _server_done
 
     _server_done = True
+    _server_close_lock.acquire()  # pylint: disable=consider-using-with
 
 
 def log(session_id: int, seq: "int | None", msg: str):
@@ -139,49 +141,50 @@ def handle_timer():
 def handle_socket():
     while not _server_done:
         packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
-        response = server_response(packet, remote_addr)
+        with _server_close_lock:
+            response = server_response(packet, remote_addr)
 
-        if response == Constants.Response.IGNORE:
-            continue
-        elif response == Constants.Response.NORMAL:
-            packet_header = packet[:Constants.HEADER_SIZE]
-            command, seq, session_id = util.unpack(packet_header)[2:5]
+            if response == Constants.Response.IGNORE:
+                continue
+            elif response == Constants.Response.NORMAL:
+                packet_header = packet[:Constants.HEADER_SIZE]
+                command, seq, session_id = util.unpack(packet_header)[2:5]
 
-            if command == Constants.Command.HELLO.value:
-                with _client_map_lock:
-                    send_packet(Constants.Command.HELLO.value, session_id, remote_addr)
-                    log(session_id, seq, "Session created")
-                    _client_data_map[session_id] = ClientData(session_id, remote_addr)
-                    _client_data_map[session_id].timestamp = time.time()
-            elif command == Constants.Command.DATA.value:
-                data = packet[Constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
-
-                with _client_map_lock:
-                    if session_id in _client_data_map:
-                        send_packet(Constants.Command.ALIVE.value, session_id, remote_addr)
-                        log(session_id, seq, data)
+                if command == Constants.Command.HELLO.value:
+                    with _client_map_lock:
+                        send_packet(Constants.Command.HELLO.value, session_id, remote_addr)
+                        log(session_id, seq, "Session created")
+                        _client_data_map[session_id] = ClientData(session_id, remote_addr)
                         _client_data_map[session_id].timestamp = time.time()
-            elif command == Constants.Command.GOODBYE.value:
-                # Needs to be locked so that GOODBYE from client is not printed
-                # after Session Closed is printed from the timer
+                elif command == Constants.Command.DATA.value:
+                    data = packet[Constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
+
+                    with _client_map_lock:
+                        if session_id in _client_data_map:
+                            send_packet(Constants.Command.ALIVE.value, session_id, remote_addr)
+                            log(session_id, seq, data)
+                            _client_data_map[session_id].timestamp = time.time()
+                elif command == Constants.Command.GOODBYE.value:
+                    # Needs to be locked so that GOODBYE from client is not printed
+                    # after Session Closed is printed from the timer
+                    with _client_map_lock:
+                        if session_id in _client_data_map:
+                            log(session_id, seq, "GOODBYE from client.")
+
+                        # Even if the timer closes the client here since we are not in the lock,
+                        # the result is the same because the timer calls client_close.
+                        # No other threads modify _client_data_map
+                        client_close(session_id)
+
                 with _client_map_lock:
                     if session_id in _client_data_map:
-                        log(session_id, seq, "GOODBYE from client.")
+                        _client_data_map[session_id].packet_number = seq
+                        _client_data_map[session_id].previous_command = command
+            elif response == Constants.Response.CLOSE:
+                packet_header = packet[:Constants.HEADER_SIZE]
+                session_id = util.unpack(packet_header)[4]
 
-                    # Even if the timer closes the client here since we are not in the lock,
-                    # the result is the same because the timer calls client_close.
-                    # No other threads modify _client_data_map
-                    client_close(session_id)
-
-            with _client_map_lock:
-                if session_id in _client_data_map:
-                    _client_data_map[session_id].packet_number = seq
-                    _client_data_map[session_id].previous_command = command
-        elif response == Constants.Response.CLOSE:
-            packet_header = packet[:Constants.HEADER_SIZE]
-            session_id = util.unpack(packet_header)[4]
-
-            client_close(session_id)
+                client_close(session_id)
 
 
 def main():
