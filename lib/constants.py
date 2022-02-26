@@ -5,10 +5,11 @@ HEADER_SIZE = 12
 VERSION = 1
 BUFFER_SIZE = 4096
 TIMEOUT_INTERVAL = 5
+PACKET_FORMAT = "!HBBII"
 
 
 class Command(_Enum):
-    DEFAULT = -1
+    DEFAULT = 100
     HELLO = 0
     DATA = 1
     ALIVE = 2

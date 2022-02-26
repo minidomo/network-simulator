@@ -3,9 +3,10 @@ from queue import Queue as _Queue
 
 class BufferedWriter:
 
-    def __init__(self, fd: int, mode: str, buffer_size: int, encoding: str) -> None:
+    def __init__(self, fd: "int|None", mode: str, buffer_size: int, encoding: str) -> None:
         self._queue = _Queue()
-        self._stream = open(fd, mode, buffering=buffer_size, encoding=encoding)  # pylint: disable=consider-using-with
+        if fd is not None:
+            self._stream = open(fd, mode, buffering=buffer_size, encoding=encoding)  # pylint: disable=consider-using-with
 
     def write(self, s: str) -> None:
         self._queue.put(s)

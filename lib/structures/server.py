@@ -76,9 +76,11 @@ class Server:
                     else:
                         return _Constants.Response.CLOSE
 
-    def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> None:
+    def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> "_Constants.Command|None":
         with self._close_lock:
             response = self._determine_response(packet, address)
+
+            ret_command: "_Constants.Command|None" = None
 
             if response == _Constants.Response.NORMAL:
                 packet_header = packet[:_Constants.HEADER_SIZE]
@@ -92,6 +94,7 @@ class Server:
 
                 if command == _Constants.Command.HELLO.value:
                     with self._map_lock:
+                        ret_command = _Constants.Command.HELLO
                         self.send_packet(address, command, session_id)
                         self._client_log(session_id, "Session created", seq)
 
@@ -106,6 +109,7 @@ class Server:
 
                     with self._map_lock:
                         if session_id in self._client_data_map:
+                            ret_command = _Constants.Command.ALIVE
                             client = self._client_data_map[session_id]
                             self.send_packet(address, _Constants.Command.ALIVE.value, session_id)
                             self._client_log(session_id, data, seq)
@@ -114,6 +118,7 @@ class Server:
                 elif command == _Constants.Command.GOODBYE.value:
                     with self._map_lock:
                         if session_id in self._client_data_map:
+                            ret_command = _Constants.Command.GOODBYE
                             client = self._client_data_map[session_id]
                             self._client_close(client, True)
 
@@ -126,6 +131,7 @@ class Server:
 
                 with self._map_lock:
                     if session_id in self._client_data_map:
+                        ret_command = _Constants.Command.GOODBYE
                         client = self._client_data_map[session_id]
                         self._client_close(client, False)
 
@@ -133,6 +139,8 @@ class Server:
                 pass
             else:
                 raise Exception("Unknown response")
+
+            return ret_command
 
     def _client_log(self, session_id: int, s: str, seq: "int|None" = None) -> None:
         if seq is None:
