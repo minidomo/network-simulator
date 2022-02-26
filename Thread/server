@@ -2,222 +2,63 @@
 
 import setup_path  # pylint: disable=unused-import
 import sys
-import socket
-import time
-from threading import Thread, RLock
+from time import sleep
+from threading import Thread
 from lib import constants as Constants
-from lib.structures import ClientData, BufferedWriter
-from lib import util
-
-_client_data_map: "dict[int, ClientData]" = {}
-_seq = 0  # Packet sequence number
-_socket: socket.socket = None
-_server_done = False
-_server_close_lock = RLock()
-_client_map_lock = RLock()
-_bf = BufferedWriter(sys.stdout.fileno(), "w", 5000000, "utf-8")
+from lib.structures import BufferedWriter, Server
 
 
-# Send a packet by creating the header and appending any data to it
-# _seq is incremented every time this function is called
-def send_packet(command: int, session_id: int, destination: "tuple[str,int]", data: str = None):
-    global _seq
-
-    data_msg = util.pack(command, _seq, session_id, data)
-    _socket.sendto(data_msg, destination)
-    _seq += 1
+def handle_print(server: Server, bf: BufferedWriter):
+    while not server.closed:
+        bf.flush()
+        sleep(2)
 
 
-def server_close():
-    global _server_done
-
-    _server_done = True
-    _server_close_lock.acquire()  # pylint: disable=consider-using-with
-
-
-def log(session_id: int, seq: "int | None", msg: str):
-    if seq is None:
-        _bf.write(f"0x{session_id:08x} {msg}")
-    else:
-        _bf.write(f"0x{session_id:08x} [{seq}] {msg}")
-
-
-# Close the session of a client by sending a GOODBYE and printing Session Closed
-def client_close(session_id: int):
-    with _client_map_lock:
-        if session_id in _client_data_map:
-            client = _client_data_map[session_id]
-            send_packet(Constants.Command.GOODBYE.value, session_id, client.address)
-            log(session_id, None, "Session Closed")
-            del _client_data_map[session_id]
-
-
-# Returns a Constants.Response depending on if the received packet was valid
-def server_response(packet: bytes, address: "tuple[str,int]") -> Constants.Response:
-    if _server_done:
-        return Constants.Response.IGNORE
-
-    if len(packet) < Constants.HEADER_SIZE:
-        return Constants.Response.IGNORE
-
-    packet_header = packet[:Constants.HEADER_SIZE]
-    magic_num, version, command, seq, session_id = util.unpack(packet_header)
-
-    if magic_num != Constants.MAGIC_NUMBER or version != Constants.VERSION:
-        return Constants.Response.IGNORE
-
-    with _client_map_lock:
-        if session_id in _client_data_map:
-            client = _client_data_map[session_id]
-
-            # existing session id but from different address
-            if address[0] != client.address[0] or address[1] != client.address[1]:
-                return Constants.Response.IGNORE
-
-            if seq == client.packet_number:
-                # duplicate packet
-
-                if (command in (Constants.Command.HELLO.value, Constants.Command.DATA.value,
-                                Constants.Command.GOODBYE.value) and command == client.previous_command):
-                    log(session_id, seq, "Duplicate packet!")
-                    return Constants.Response.IGNORE
-                else:
-                    return Constants.Response.CLOSE
-            elif seq < client.packet_number:
-                # out of order delivery (could also be wrap around but will not be tested on it)
-                return Constants.Response.CLOSE
-            else:
-                if seq > client.packet_number + 1:
-                    for i in range(client.packet_number + 1, seq):
-                        log(session_id, i, "Lost packet!")
-                if command == Constants.Command.HELLO.value:
-                    return Constants.Response.CLOSE
-                elif command == Constants.Command.ALIVE.value:
-                    return Constants.Response.CLOSE
-                elif command == Constants.Command.GOODBYE.value:
-                    return Constants.Response.NORMAL
-                elif command == Constants.Command.DATA.value:
-                    return Constants.Response.NORMAL
-                else:
-                    return Constants.Response.CLOSE
-        else:
-            if seq == 0:
-                if command == Constants.Command.HELLO.value:
-                    return Constants.Response.NORMAL
-                else:
-                    return Constants.Response.IGNORE
-            else:
-                return Constants.Response.IGNORE
-
-
-def handle_print():
-    while not _server_done:
-        _bf.flush()
-        time.sleep(2)
-
-
-def handle_keyboard():
+def handle_keyboard(server: Server):
     while True:
         text = sys.stdin.readline()
-        # Terminates server if input is EOF or "q"
         if not text or (text == "q\n" and sys.stdin.isatty()):
-            server_close()  # do gracefully end here
+            server.close()
             break
 
 
-# Every TIMEOUT_INTERVAL=5 seconds, any clients who have timed out are closed
-def handle_timer():
-    while not _server_done:
-        for session_id in list(_client_data_map.keys()):
-            with _client_map_lock:
-                if session_id in _client_data_map:
-                    client = _client_data_map[session_id]
-
-                    if client.timestamp != -1 and time.time() - client.timestamp > Constants.TIMEOUT_INTERVAL:
-                        client_close(session_id)
-        time.sleep(Constants.TIMEOUT_INTERVAL)
+def handle_timer(server: Server):
+    while not server.closed:
+        server.prune_inactive_clients()
+        sleep(Constants.TIMEOUT_INTERVAL)
 
 
-def handle_socket():
-    while not _server_done:
-        packet, remote_addr = _socket.recvfrom(Constants.BUFFER_SIZE)
-        with _server_close_lock:
-            response = server_response(packet, remote_addr)
-
-            if response == Constants.Response.IGNORE:
-                continue
-            elif response == Constants.Response.NORMAL:
-                packet_header = packet[:Constants.HEADER_SIZE]
-                command, seq, session_id = util.unpack(packet_header)[2:5]
-
-                if command == Constants.Command.HELLO.value:
-                    with _client_map_lock:
-                        send_packet(Constants.Command.HELLO.value, session_id, remote_addr)
-                        log(session_id, seq, "Session created")
-                        _client_data_map[session_id] = ClientData(session_id, remote_addr)
-                        _client_data_map[session_id].timestamp = time.time()
-                elif command == Constants.Command.DATA.value:
-                    data = packet[Constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
-
-                    with _client_map_lock:
-                        if session_id in _client_data_map:
-                            send_packet(Constants.Command.ALIVE.value, session_id, remote_addr)
-                            log(session_id, seq, data)
-                            _client_data_map[session_id].timestamp = time.time()
-                elif command == Constants.Command.GOODBYE.value:
-                    # Needs to be locked so that GOODBYE from client is not printed
-                    # after Session Closed is printed from the timer
-                    with _client_map_lock:
-                        if session_id in _client_data_map:
-                            log(session_id, seq, "GOODBYE from client.")
-
-                        # Even if the timer closes the client here since we are not in the lock,
-                        # the result is the same because the timer calls client_close.
-                        # No other threads modify _client_data_map
-                        client_close(session_id)
-
-                with _client_map_lock:
-                    if session_id in _client_data_map:
-                        _client_data_map[session_id].packet_number = seq
-                        _client_data_map[session_id].previous_command = command
-            elif response == Constants.Response.CLOSE:
-                packet_header = packet[:Constants.HEADER_SIZE]
-                session_id = util.unpack(packet_header)[4]
-
-                client_close(session_id)
+def handle_socket(server: Server):
+    while not server.closed:
+        packet, remote_addr = server.receive_packet()
+        if remote_addr is None:
+            break
+        server.handle_packet(packet, remote_addr)
 
 
 def main():
-    global _socket
-
     portnum = int(sys.argv[1])
-    address = (b"0.0.0.0", portnum)
-    _socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    _socket.bind(address)
 
-    _bf.write(f"Waiting on port {portnum}...")
+    bf = BufferedWriter(sys.stdout.fileno(), "w", 5000000, "utf-8")
+    server = Server(portnum, bf)
 
-    t1 = Thread(target=handle_socket, daemon=True)
+    bf.write(f"Waiting on port {portnum}...")
+
+    t1 = Thread(target=handle_socket, args=(server,))
     t1.start()
 
-    t2 = Thread(target=handle_timer)
+    t2 = Thread(target=handle_timer, args=(server,))
     t2.start()
 
-    t3 = Thread(target=handle_print)
+    t3 = Thread(target=handle_print, args=(
+        server,
+        bf,
+    ))
     t3.start()
 
-    handle_keyboard()
+    handle_keyboard(server)
 
-    # Wait for handle_timer and handle_print to exit
-    t2.join()
-    t3.join()
-
-    # Close all connections before exiting
-    for session_id in list(_client_data_map.keys()):
-        client_close(session_id)
-
-    _bf.close()
-    _socket.close()
+    bf.flush()
 
 
 if __name__ == "__main__":
