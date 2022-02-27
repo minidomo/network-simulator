@@ -4,34 +4,33 @@ import setup_path  # pylint: disable=unused-import
 import sys
 import time
 from threading import Thread
-from queue import Queue
 from lib import constants as Constants
 from lib.structures import Client
 
 
-def handle_timer(client: Client, finish_queue: Queue):
-    while not client.timeout():
+def handle_timer(client: Client):
+    while not client.closed:
+        client.check_timeout()
         time.sleep(Constants.TIMEOUT_INTERVAL)
-
-    finish_queue.put("timer")
 
 
 def handle_keyboard(client: Client):
-    while True:
+    while not client.closed:
         text = sys.stdin.readline()
-        # Terminates server if input is EOF or "q"
-        if not text or (text == "q\n" and sys.stdin.isatty()):
-            client.close_client(True)
-            break
-        else:
-            client.send_data(text)
+        if not client.closed:
+            # Terminates server if input is EOF or "q"
+            if not text or (text == "q\n" and sys.stdin.isatty()):
+                client.send_goodbye()
+                break
+            else:
+                client.send_data(text)
 
 
-def handle_socket(client: Client, finish_queue: Queue):
-    while client.handle_packet(client.receive_packet()):
-        pass
-
-    finish_queue.put("socket")
+def handle_socket(client: Client):
+    while not client.closed:
+        packet, remote_addr = client.receive_packet()
+        if not client.closed:
+            client.handle_packet(packet, remote_addr)
 
 
 def main():
@@ -41,27 +40,22 @@ def main():
     client = Client(hostname, portnum)
 
     if client.hello_exchange():
-        finish_queue = Queue()
 
-        t1 = Thread(target=handle_socket, args=(
-            client,
-            finish_queue,
-        ), daemon=True)
+        t1 = Thread(target=handle_socket, args=(client,))
         t1.start()
 
         t2 = Thread(target=handle_keyboard, args=(client,), daemon=True)
         t2.start()
 
-        t3 = Thread(target=handle_timer, args=(
-            client,
-            finish_queue,
-        ), daemon=True)
+        t3 = Thread(target=handle_timer, args=(client,))
         t3.start()
 
-        # blocks current thread until something found in queue
-        result = finish_queue.get()
-        print(f"Thread finished: {result}")
+        # blocks current thread until a close signal was received
+        client.wait_for_close_signal()
+        client.close()
 
+        t1.join()
+        t3.join()
     else:
         print("Did not receive HELLO from server")
 

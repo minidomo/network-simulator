@@ -1,115 +1,101 @@
 #!/usr/bin/env python3
 
-import socket
-import random
-import time
-from threading import Thread, Lock
-from queue import Queue
-from .. import constants as Constants
-from .. import util
+import socket as _socket
+import random as _random
+from queue import Queue as _Queue
+from time import time as _time
+from threading import Thread as _Thread, Semaphore as _Semaphore, Lock as _Lock
+from .. import constants as _Constants
+from .. import util as _util
 
 
 class Client:
 
     def __init__(self, hostname: str, portnum: int) -> None:
-        self._session_id = random.randint(0, 2**32)
+        self._session_id = _random.randint(0, 2**32)
         self._seq = 0
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._socket = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
         self._server_address = (hostname, portnum)
-        self._close_lock = Lock()
-        self._keyboard_lock = Lock()
-        self._socket_lock = Lock()
-        self._client_closing = False
-        self._waiting_message_time = -1
-        self.sent_data = False
+        self._timestamp = -1
+        self._close_queue = _Queue()
+        self._close_sema = _Semaphore(2)
+        self._send_data_lock = _Lock()
+        self.closed = False
 
-    def __del__(self):
+    def wait_for_close_signal(self):
+        self._close_queue.get()
+
+    def signal_close(self):
+        self._close_queue.put(None)
+
+    def send_packet(self, command: int, data: str = None) -> None:
+        encoded_data = _util.pack(command, self._seq, self._session_id, data)
+        self._socket.sendto(encoded_data, self._server_address)
+        self._seq += 1
+
+    def send_data(self, text: str) -> None:
+        with self._send_data_lock:
+            if self._timestamp == -1:
+                self._timestamp = _time()
+            self.send_packet(_Constants.Command.DATA.value, text)
+
+    def send_goodbye(self) -> None:
+        self._send_data_lock.acquire()  # pylint: disable=consider-using-with
+        self.send_packet(_Constants.Command.GOODBYE.value)
+        self._timestamp = _time()
+
+    def receive_packet(self) -> "tuple[bytes,tuple[str,int]]":
+        return self._socket.recvfrom(_Constants.BUFFER_SIZE)
+
+    def close(self) -> None:
+        self.closed = True
+        self._close_sema.acquire()  # pylint: disable=consider-using-with
+        self._close_sema.acquire()  # pylint: disable=consider-using-with
         try:
-            self._socket.shutdown(socket.SHUT_RDWR)
-        except:
+            self._socket.shutdown(_socket.SHUT_RDWR)
+        except:  # pylint: disable=bare-except
             pass
         self._socket.close()
 
-    def send_packet(self, command: int, data: str = None):
-        data_msg = util.pack(command, self._seq, self._session_id, data)
-        self._socket.sendto(data_msg, self._server_address)
-        self._seq += 1
+    def check_timeout(self) -> None:
+        with self._close_sema:
+            if self._timestamp != -1 and _time() - self._timestamp > _Constants.TIMEOUT_INTERVAL:
+                print("timed out")
+                self.signal_close()
 
-    def close_client(self, send: bool):
-        with self._close_lock:  # two threads might try to close at the same time
-            if not self._client_closing:
-                if send:
-                    self._waiting_message_time = time.time()
-                    self.send_packet(Constants.Command.GOODBYE.value)
-                self._client_closing = True
-                self._keyboard_lock.acquire()  # prevent any further keyboard input from being processed
+    def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> None:
+        with self._close_sema:
+            magic_num, version, command, _, session_id = _util.unpack(packet)
 
-    # Returns whether the client timed out
-    def timeout(self) -> bool:
-        if self._waiting_message_time != -1 and time.time() - self._waiting_message_time > Constants.TIMEOUT_INTERVAL:
-            if not self._client_closing:
-                print("Timeout")
-                # Let the socket finish a packet it is currently processing, then prevent it from processing any more
-                self._socket_lock.acquire()
-                self.close_client(False)
-            return True
-        return False
-
-    def send_data(self, text: str):
-        with self._keyboard_lock:
-            if self._waiting_message_time == -1:  # Set the timeout for the first packet after the timer was cancelled
-                self._waiting_message_time = time.time()
-            self.sent_data = True
-            self.send_packet(Constants.Command.DATA.value, text)
-
-    def receive_packet(self):
-        packet, _ = self._socket.recvfrom(Constants.BUFFER_SIZE)
-        return packet
-
-    # Returns whether the client is closing
-    def handle_packet(self, packet):
-
-        def log(session_id: int, seq: "int | None", msg: str):
-            if seq is None:
-                print(f"0x{session_id:08x} {msg}")
-            else:
-                print(f"0x{session_id:08x} [{seq}] {msg}")
-
-        with self._socket_lock:
-            magic_num, version, command, seq, session_id = util.unpack(packet)
-
-            if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
-                if command == Constants.Command.GOODBYE.value:
-                    log(session_id, seq, "GOODBYE from server.")
-                    self.close_client(False)
-                    return False
-                elif command == Constants.Command.ALIVE.value and self.sent_data:
-                    if self._waiting_message_time != -1:
-                        self._waiting_message_time = -1
+            if magic_num == _Constants.MAGIC_NUMBER and version == _Constants.VERSION:
+                if command == _Constants.Command.GOODBYE.value:
+                    print("GOODBYE from server.")
+                    self.signal_close()
+                elif command == _Constants.Command.ALIVE.value and self._seq > 1:
+                    if self._timestamp != -1:
+                        self._timestamp = -1
                 else:
                     print(f"Invalid command: {command}")
-                    self.close_client(True)
-                    return False
+                    self.send_goodbye()
+                    self.signal_close()
 
-        return True
-
-    def hello_exchange(self):
+    def hello_exchange(self) -> bool:
         # stop and wait
-        def try_hello_exchange(result_queue: Queue):
-            self.send_packet(Constants.Command.HELLO.value)
+        def try_hello_exchange(result_queue: _Queue):
+            self.send_packet(_Constants.Command.HELLO.value)
             while True:
-                packet, _ = self._socket.recvfrom(Constants.BUFFER_SIZE)
-                magic_num, version, command, _, _ = util.unpack(packet)
-                if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
+                packet, _ = self._socket.recvfrom(_Constants.BUFFER_SIZE)
+                magic_num, version, command, _, _ = _util.unpack(packet)
+                if magic_num == _Constants.MAGIC_NUMBER and version == _Constants.VERSION:
                     result_queue.put(command)
                     break
 
-        queue = Queue()
-        t = Thread(target=try_hello_exchange, args=(queue,), daemon=True)
+        queue = _Queue()
+        t = _Thread(target=try_hello_exchange, args=(queue,), daemon=True)
         t.start()
 
         try:
-            command: int = queue.get(block=True, timeout=Constants.TIMEOUT_INTERVAL)
-            return command == Constants.Command.HELLO.value
-        except Exception as _:
+            command: int = queue.get(timeout=_Constants.TIMEOUT_INTERVAL)
+            return command == _Constants.Command.HELLO.value
+        except:  # pylint: disable=bare-except
             return False

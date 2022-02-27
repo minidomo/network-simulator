@@ -31,9 +31,8 @@ def handle_timer(server: Server):
 def handle_socket(server: Server):
     while not server.closed:
         packet, remote_addr = server.receive_packet()
-        if remote_addr is None:
-            break
-        server.handle_packet(packet, remote_addr)
+        if not server.closed:
+            server.handle_packet(packet, remote_addr)
 
 
 def main():
@@ -58,6 +57,9 @@ def main():
 
     handle_keyboard(server)
 
+    t1.join()
+    t2.join()
+    t3.join()
     bf.flush()
 
 
