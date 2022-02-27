@@ -176,5 +176,5 @@ class Server:
             pass
         self._socket.close()
 
-    def receive_packet(self) -> "tuple[bytes,tuple[str,int]]|None":
+    def receive_packet(self) -> "tuple[bytes,tuple[str,int]]":
         return self._socket.recvfrom(_Constants.BUFFER_SIZE)
