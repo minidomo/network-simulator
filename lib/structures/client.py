@@ -46,11 +46,11 @@ class Client:
 
     def close(self) -> None:
         self.closed = True
-        self._close_sema.acquire()
-        self._close_sema.acquire()
+        self._close_sema.acquire()  # pylint: disable=consider-using-with
+        self._close_sema.acquire()  # pylint: disable=consider-using-with
         try:
             self._socket.shutdown(_socket.SHUT_RDWR)
-        except:
+        except:  # pylint: disable=bare-except
             pass
         self._socket.close()
 
@@ -94,5 +94,5 @@ class Client:
         try:
             command: int = queue.get(timeout=_Constants.TIMEOUT_INTERVAL)
             return command == _Constants.Command.HELLO.value
-        except:
+        except:  # pylint: disable=bare-except
             return False
