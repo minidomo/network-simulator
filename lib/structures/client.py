@@ -4,7 +4,7 @@ import socket as _socket
 import random as _random
 from queue import Queue as _Queue
 from time import time as _time
-from threading import Thread as _Thread, Semaphore as _Semaphore
+from threading import Thread as _Thread, Semaphore as _Semaphore, Lock as _Lock
 from .. import constants as _Constants
 from .. import util as _util
 
@@ -19,6 +19,7 @@ class Client:
         self._timestamp = -1
         self._close_queue = _Queue()
         self._close_sema = _Semaphore(2)
+        self._send_data_lock = _Lock()
         self.closed = False
 
     def wait_for_close_signal(self):
@@ -33,11 +34,13 @@ class Client:
         self._seq += 1
 
     def send_data(self, text: str) -> None:
-        if self._timestamp == -1:
-            self._timestamp = _time()
-        self.send_packet(_Constants.Command.DATA.value, text)
+        with self._send_data_lock:
+            if self._timestamp == -1:
+                self._timestamp = _time()
+            self.send_packet(_Constants.Command.DATA.value, text)
 
     def send_goodbye(self) -> None:
+        self._send_data_lock.acquire()  # pylint: disable=consider-using-with
         self.send_packet(_Constants.Command.GOODBYE.value)
         self._timestamp = _time()
 
