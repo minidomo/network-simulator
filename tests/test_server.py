@@ -1,6 +1,5 @@
 # pylint: disable=protected-access
 
-import setup_path  # pylint: disable=unused-import
 import random
 from lib.structures import Server, BufferedWriter, ClientData
 from lib import constants as Constants

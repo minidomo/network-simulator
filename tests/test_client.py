@@ -1,7 +1,7 @@
 # pylint: disable=protected-access
 
-import setup_path  # pylint: disable=unused-import
 import time
+from queue import Queue
 from threading import Thread
 from lib.structures import Client
 from lib import util
@@ -135,21 +135,32 @@ def test_hello_exchange_timeout():
 
 
 def test_close_timeout_then_packet():
-    client = make_client()
 
-    client.send_data("abc")
+    def will_block(queue: Queue):
+        client = make_client()
+        client.send_data("abc")
+        time.sleep(Constants.TIMEOUT_INTERVAL)
+        client.timeout()
 
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+        alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
+        client.handle_packet(alive)
+        queue.put(0)
 
-    client.timeout()
+    queue = Queue()
+    t = Thread(target=will_block, args=(queue,), daemon=True)
+    t.start()
 
-    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
+    res = False
 
-    t1 = Thread(target=client.handle_packet, args=(alive), daemon=True)
-    t1.start()
-    t1.join(timeout=6)
+    try:
+        queue.get(timeout=Constants.TIMEOUT_INTERVAL * 2)
+    except:
+        res = True
 
-    assert t1.is_alive()
+    assert res
+
+
+"""
 
 
 def test_close_then_packet():
@@ -166,13 +177,26 @@ def test_close_then_packet():
     assert t1.is_alive()
 
 
+"""
+
+
 def test_close_then_keyboard():
-    client = make_client()
 
-    client.close_client(False)
+    def will_block(queue: Queue):
+        client = make_client()
+        client.close_client(False)
+        client.send_data("abc")
+        queue.put(0)
 
-    t1 = Thread(target=client.send_data, args=("abc"), daemon=True)
-    t1.start()
-    t1.join(timeout=6)
+    queue = Queue()
+    t = Thread(target=will_block, args=(queue,), daemon=True)
+    t.start()
 
-    assert t1.is_alive()
+    res = False
+
+    try:
+        queue.get(timeout=Constants.TIMEOUT_INTERVAL)
+    except:
+        res = True
+
+    assert res

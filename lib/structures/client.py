@@ -3,7 +3,7 @@
 import socket
 import random
 import time
-from threading import Thread, RLock
+from threading import Thread, Lock
 from queue import Queue
 from .. import constants as Constants
 from .. import util
@@ -16,9 +16,9 @@ class Client:
         self._seq = 0
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._server_address = (hostname, portnum)
-        self._close_lock = RLock()
-        self._keyboard_lock = RLock()
-        self._socket_lock = RLock()
+        self._close_lock = Lock()
+        self._keyboard_lock = Lock()
+        self._socket_lock = Lock()
         self._client_closing = False
         self._waiting_message_time = -1
         self.sent_data = False
