@@ -10,7 +10,7 @@ from lib.structures import Client
 
 def handle_timer(client: Client):
     while not client.closed:
-        client.check_timeout()
+        client.timed_out()
         time.sleep(Constants.TIMEOUT_INTERVAL)
 
 

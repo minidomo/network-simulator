@@ -1,4 +1,5 @@
 # pylint: disable=protected-access
+# pylint: disable=bare-except
 
 import time
 from queue import Queue
@@ -12,6 +13,7 @@ _portnum = 1456
 
 def make_client() -> Client:
     client = Client("localhost", _portnum)
+    client._server_session_id = 0
 
     return client
 
@@ -20,48 +22,47 @@ def test_hello():
     client = make_client()
 
     hello = util.pack(Constants.Command.HELLO.value, 0, 0)
+    client.handle_packet(hello, client._server_address)
 
-    assert not client.handle_packet(hello)
-    assert client._client_closing
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
+    assert client._close_queue.qsize() == 1
 
 
 def test_alive():
     client = make_client()
+    client._seq = 1
 
     client.send_data("data")
-    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
 
-    assert client.handle_packet(alive)
-    assert not client._client_closing
+    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
+    client.handle_packet(alive, client._server_address)
+
+    assert client._can_send_goodbye is True
+    assert client._can_send_data is True
+    assert client._close_queue.qsize() == 0
 
 
 def test_goodbye():
     client = make_client()
 
     goodbye = util.pack(Constants.Command.GOODBYE.value, 0, 0)
+    client.handle_packet(goodbye, client._server_address)
 
-    assert not client.handle_packet(goodbye)
-    assert client._client_closing
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
+    assert client._close_queue.qsize() == 1
 
 
 def test_data():
     client = make_client()
 
     data = util.pack(Constants.Command.DATA.value, 0, 0)  # ignore actual data since that would get split off
+    client.handle_packet(data, client._server_address)
 
-    assert not client.handle_packet(data)
-    assert client._client_closing
-
-
-def test_exit_timeout():
-    client = make_client()
-
-    client.close_client(True)
-
-    time.sleep(Constants.TIMEOUT_INTERVAL)
-
-    assert client.timeout()
-    assert client._client_closing
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
+    assert client._close_queue.qsize() == 1
 
 
 def test_no_timeout():
@@ -74,13 +75,14 @@ def test_no_timeout():
     client.send_data("5")
 
     alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
-
-    client.handle_packet(alive)
+    client.handle_packet(alive, client._server_address)
 
     time.sleep(Constants.TIMEOUT_INTERVAL)
 
-    assert not client.timeout()
-    assert not client._client_closing
+    assert client.timed_out() is False
+    assert client._can_send_goodbye is True
+    assert client._can_send_data is True
+    assert client._close_queue.qsize() == 0
 
 
 def test_data_timeout():
@@ -90,29 +92,33 @@ def test_data_timeout():
 
     time.sleep(Constants.TIMEOUT_INTERVAL)
 
-    assert client.timeout()
-    assert client._client_closing
+    assert client.timed_out() is True
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
+    assert client._close_queue.qsize() == 1
 
 
 def test_goodbye_timeout():
     client = make_client()
 
-    client.close_client(True)
+    client.send_goodbye()
 
     time.sleep(Constants.TIMEOUT_INTERVAL)
 
-    assert client.timeout()
-    assert client._client_closing
+    assert client.timed_out() is True
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
+    assert client._close_queue.qsize() == 1
 
 
 def test_seq():
     client = make_client()
 
-    client.send_packet(Constants.Command.HELLO.value)
-    client.send_packet(Constants.Command.DATA.value, "1")
-    client.send_packet(Constants.Command.DATA.value, "2")
-    client.send_packet(Constants.Command.DATA.value, "3")
-    client.send_packet(Constants.Command.DATA.value, "4")
+    client._send_packet(Constants.Command.HELLO.value)
+    client._send_packet(Constants.Command.DATA.value, "1")
+    client._send_packet(Constants.Command.DATA.value, "2")
+    client._send_packet(Constants.Command.DATA.value, "3")
+    client._send_packet(Constants.Command.DATA.value, "4")
 
     assert client._seq == 5
 
@@ -121,82 +127,75 @@ def test_alive_no_data():
     client = make_client()
 
     alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
+    client.handle_packet(alive, client._server_address)
 
-    assert not client.handle_packet(alive)
-    assert client._client_closing
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
+    assert client._close_queue.qsize() == 1
 
 
 def test_hello_exchange_timeout():
     client = make_client()
 
-    client.hello_exchange()
-
-    assert True
+    assert client.hello_exchange() is False
 
 
 def test_close_timeout_then_packet():
 
-    def will_block(queue: Queue):
+    def blockable(queue: Queue):
         client = make_client()
         client.send_data("abc")
         time.sleep(Constants.TIMEOUT_INTERVAL)
-        client.timeout()
+        client.timed_out()
+        client.wait_for_close_signal()
+        client.close()
 
         alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
-        client.handle_packet(alive)
-        queue.put(0)
+        client.handle_packet(alive, client._server_address)
+        queue.put(None)
 
     queue = Queue()
-    t = Thread(target=will_block, args=(queue,), daemon=True)
+    t = Thread(target=blockable, args=(queue,), daemon=True)
     t.start()
 
-    res = False
+    blocked = False
 
     try:
         queue.get(timeout=Constants.TIMEOUT_INTERVAL * 2)
     except:
-        res = True
+        blocked = True
 
-    assert res
-
-
-"""
+    assert blocked is True
 
 
-def test_close_then_packet():
-    client = make_client()
+def test_wait_for_close():
 
-    client.close_client(False)
+    def blockable(queue: Queue):
+        client = make_client()
+        client.wait_for_close_signal()
+        queue.put(None)
 
-    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
+    queue = Queue()
+    t = Thread(target=blockable, args=(queue,), daemon=True)
+    t.start()
 
-    t1 = Thread(target=client.handle_packet, args=(alive), daemon=True)
-    t1.start()
-    t1.join(timeout=6)
+    blocked = False
 
-    assert t1.is_alive()
+    try:
+        queue.get(timeout=Constants.TIMEOUT_INTERVAL * 2)
+    except:
+        blocked = True
 
-
-"""
+    assert blocked is True
 
 
 def test_close_then_keyboard():
 
-    def will_block(queue: Queue):
-        client = make_client()
-        client.close_client(False)
-        client.send_data("abc")
-        queue.put(0)
+    client = make_client()
+    client.signal_close()
+    client.wait_for_close_signal()
+    client.close()
 
-    queue = Queue()
-    t = Thread(target=will_block, args=(queue,), daemon=True)
-    t.start()
+    client.send_data("abc")
 
-    res = False
-
-    try:
-        queue.get(timeout=Constants.TIMEOUT_INTERVAL)
-    except:
-        res = True
-
-    assert res
+    assert client._sent_data is False
