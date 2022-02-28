@@ -14,6 +14,7 @@ _socket = None
 _timer = None
 _keyboard = None
 _server_address: "tuple[str,int]" = None
+_server_session_id: int = None
 _timer_active: bool = False
 
 
@@ -66,32 +67,32 @@ def handle_keyboard(handle, data: "bytes|None", error):
 def handle_socket(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error):
     global _timer_active
 
-    def log(session_id: int, seq: "int | None", msg: str):
-        if seq is None:
-            print(f"0x{session_id:08x} {msg}")
-        else:
-            print(f"0x{session_id:08x} [{seq}] {msg}")
-
-    magic_num, version, command, seq, session_id = util.unpack(packet)
+    magic_num, version, command, _, session_id = util.unpack(packet)
 
     if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
-        if command == Constants.Command.GOODBYE.value:
-            log(session_id, seq, "GOODBYE from server.")
-            close_client(False)
-        elif command == Constants.Command.ALIVE.value:
-            _timer_active = False
-            _timer.stop()
-        else:
-            print(f"Invalid command: {command}")
+        if session_id != _server_session_id:
             close_client(True)
+        else:
+            if command == Constants.Command.GOODBYE.value:
+                print("GOODBYE from server.")
+                close_client(False)
+            elif command == Constants.Command.ALIVE.value:
+                _timer_active = False
+                _timer.stop()
+            else:
+                print(f"Invalid command: {command}")
+                close_client(True)
 
 
 def hello_exchange(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error):
     global _keyboard
+    global _server_session_id
 
-    magic_num, version, command, _, _ = util.unpack(packet)
+    magic_num, version, command, _, session_id = util.unpack(packet)
     if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
         if command == Constants.Command.HELLO.value:
+            _server_session_id = session_id
+
             _socket.stop_recv()
             _socket.start_recv(handle_socket)
 

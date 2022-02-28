@@ -92,17 +92,17 @@ class Client:
                 if session_id != self._server_session_id:
                     self.send_goodbye()
                     self.signal_close()
-
-                if command == _Constants.Command.GOODBYE.value:
-                    print("GOODBYE from server.")
-                    self.signal_close()
-                elif command == _Constants.Command.ALIVE.value and self._sent_data and self._can_send_goodbye:
-                    if self._timestamp != -1:
-                        self._timestamp = -1
                 else:
-                    print(f"Invalid command: {command}")
-                    self.send_goodbye()
-                    self.signal_close()
+                    if command == _Constants.Command.GOODBYE.value:
+                        print("GOODBYE from server.")
+                        self.signal_close()
+                    elif command == _Constants.Command.ALIVE.value and self._sent_data and self._can_send_goodbye:
+                        if self._timestamp != -1:
+                            self._timestamp = -1
+                    else:
+                        print(f"Invalid command: {command}")
+                        self.send_goodbye()
+                        self.signal_close()
 
     def hello_exchange(self) -> bool:
         # stop and wait
