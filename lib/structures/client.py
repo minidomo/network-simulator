@@ -37,10 +37,10 @@ class Client:
 
         self.closed = False
 
-    def wait_for_close_signal(self):
+    def wait_for_close_signal(self) -> None:
         self._close_queue.get()
 
-    def signal_close(self):
+    def signal_close(self) -> None:
         with self._can_send_lock:
             # in case we never call send_goodbye()
             self._can_send_goodbye = False
