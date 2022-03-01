@@ -14,9 +14,13 @@ class Server:
         self._socket.bind((b"0.0.0.0", portnum))
         self._seq = 0
         self._bf = bf
+
         self._client_data_map: "dict[int, _ClientData]" = {}
         self._map_lock = _threading.Lock()
-        self._close_lock = _threading.Lock()
+
+        self._can_handle_packet = True
+        self._can_handle_packet_lock = _threading.Lock()
+
         self.closed = False
 
     def send_packet(self, address: "tuple[str,int]", command: int, session_id: int, data: str = None) -> None:
@@ -77,10 +81,14 @@ class Server:
                         return _Constants.Response.CLOSE
 
     def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> "_Constants.Command|None":
-        with self._close_lock:
-            response = self._determine_response(packet, address)
+        proceed = False
+        with self._can_handle_packet_lock:
+            proceed = self._can_handle_packet
 
-            ret_command: "_Constants.Command|None" = None
+        ret_command: "_Constants.Command|None" = None
+
+        if proceed:
+            response = self._determine_response(packet, address)
 
             if response == _Constants.Response.NORMAL:
                 packet_header = packet[:_Constants.HEADER_SIZE]
@@ -93,11 +101,11 @@ class Server:
                         client.previous_command = command
 
                 if command == _Constants.Command.HELLO.value:
-                    with self._map_lock:
-                        ret_command = _Constants.Command.HELLO
-                        self.send_packet(address, command, session_id)
-                        self._client_log(session_id, "Session created", seq)
+                    ret_command = _Constants.Command.HELLO
+                    self.send_packet(address, command, session_id)
+                    self._client_log(session_id, "Session created", seq)
 
+                    with self._map_lock:
                         client = _ClientData(session_id, address)
                         client.timestamp = _time()
                         client.packet_number = seq
@@ -140,7 +148,7 @@ class Server:
             else:
                 raise Exception("Unknown response")
 
-            return ret_command
+        return ret_command
 
     def _client_log(self, session_id: int, s: str, seq: "int|None" = None) -> None:
         if seq is None:
@@ -166,7 +174,8 @@ class Server:
 
     def close(self) -> None:
         self.closed = True
-        self._close_lock.acquire()  # pylint: disable=consider-using-with
+        with self._can_handle_packet_lock:
+            self._can_handle_packet = False
         with self._map_lock:
             for client in list(self._client_data_map.values()):
                 self._client_close(client, False)

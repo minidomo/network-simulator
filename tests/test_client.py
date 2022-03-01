@@ -142,7 +142,7 @@ def test_hello_exchange_timeout():
 
 def test_close_timeout_then_packet():
 
-    def blockable(queue: Queue):
+    def runnable(queue: Queue):
         client = make_client()
         client.send_data("abc")
         time.sleep(Constants.TIMEOUT_INTERVAL)
@@ -155,7 +155,7 @@ def test_close_timeout_then_packet():
         queue.put(None)
 
     queue = Queue()
-    t = Thread(target=blockable, args=(queue,), daemon=True)
+    t = Thread(target=runnable, args=(queue,), daemon=True)
     t.start()
 
     blocked = False
@@ -170,13 +170,13 @@ def test_close_timeout_then_packet():
 
 def test_wait_for_close():
 
-    def blockable(queue: Queue):
+    def runnable(queue: Queue):
         client = make_client()
         client.wait_for_close_signal()
         queue.put(None)
 
     queue = Queue()
-    t = Thread(target=blockable, args=(queue,), daemon=True)
+    t = Thread(target=runnable, args=(queue,), daemon=True)
     t.start()
 
     blocked = False
@@ -190,7 +190,6 @@ def test_wait_for_close():
 
 
 def test_close_then_keyboard():
-
     client = make_client()
     client.signal_close()
     client.wait_for_close_signal()

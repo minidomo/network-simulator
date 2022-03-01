@@ -1,4 +1,6 @@
 __pycache__
+*.pyc
+.cache/
 client_run*
 server_run*
 temp*

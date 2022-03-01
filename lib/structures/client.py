@@ -2,9 +2,9 @@
 
 import socket as _socket
 import random as _random
+import threading as _threading
 from queue import Queue as _Queue
 from time import time as _time
-from threading import Thread as _Thread, Lock as _Lock
 from .. import constants as _Constants
 from .. import util as _util
 
@@ -17,16 +17,23 @@ class Client:
         self._server_session_id = -1
         self._session_id = _random.randint(0, 2**32)
         self._seq = 0
-        self._timestamp = -1
-        self._sent_data = False
-
         self._close_queue = _Queue()
-        self._handle_packet_lock = _Lock()
-        self._timed_out_lock = _Lock()
+
+        self._can_handle_packet = True
+        self._can_handle_packet_lock = _threading.Lock()
+
+        self._can_timed_out = True
+        self._can_timed_out_lock = _threading.Lock()
 
         self._can_send_goodbye = True
         self._can_send_data = True
-        self._can_send_lock = _Lock()
+        self._can_send_lock = _threading.Lock()
+
+        self._sent_data_num = 0
+        self._sent_data_lock = _threading.Lock()
+
+        self._timestamp = -1
+        self._timestamp_lock = _threading.Lock()
 
         self.closed = False
 
@@ -42,34 +49,46 @@ class Client:
 
     def _send_packet(self, command: int, data: str = None) -> None:
         encoded_data = _util.pack(command, self._seq, self._session_id, data)
-        self._socket.sendto(encoded_data, self._server_address)
         self._seq += 1
+        self._socket.sendto(encoded_data, self._server_address)
 
     def send_data(self, text: str) -> None:
         with self._can_send_lock:
             if self._can_send_data:
-                self._send_packet(_Constants.Command.DATA.value, text)
 
-                if self._timestamp == -1:
-                    self._timestamp = _time()
-                self._sent_data = True
+                with self._timestamp_lock:
+                    if self._timestamp == -1:
+                        self._timestamp = _time()
+
+                with self._sent_data_lock:
+                    self._sent_data_num += 1
+
+                self._send_packet(_Constants.Command.DATA.value, text)
 
     def send_goodbye(self) -> None:
         with self._can_send_lock:
             if self._can_send_goodbye:
-                self._send_packet(_Constants.Command.GOODBYE.value)
 
-                self._timestamp = _time()
+                with self._timestamp_lock:
+                    self._timestamp = _time()
+
                 self._can_send_goodbye = False
                 self._can_send_data = False
+
+                self._send_packet(_Constants.Command.GOODBYE.value)
 
     def receive_packet(self) -> "tuple[bytes,tuple[str,int]]":
         return self._socket.recvfrom(_Constants.BUFFER_SIZE)
 
     def close(self) -> None:
         self.closed = True
-        self._handle_packet_lock.acquire()  # pylint: disable=consider-using-with
-        self._timed_out_lock.acquire()  # pylint: disable=consider-using-with
+
+        with self._can_handle_packet_lock:
+            self._can_handle_packet = False
+
+        with self._can_timed_out_lock:
+            self._can_timed_out = False
+
         try:
             self._socket.shutdown(_socket.SHUT_RDWR)
         except:  # pylint: disable=bare-except
@@ -77,32 +96,50 @@ class Client:
         self._socket.close()
 
     def timed_out(self) -> "bool|None":
-        with self._timed_out_lock:
-            if self._timestamp != -1 and _time() - self._timestamp > _Constants.TIMEOUT_INTERVAL:
+        proceed = False
+        with self._can_timed_out_lock:
+            proceed = self._can_timed_out
+
+        if proceed:
+            timeout = False
+            with self._timestamp_lock:
+                timeout = self._timestamp != -1 and _time() - self._timestamp > _Constants.TIMEOUT_INTERVAL
+            if timeout:
                 print("timed out")
                 self.signal_close()
-                return True
-            return False
+                return timeout
+            return timeout
 
     def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> None:
-        with self._handle_packet_lock:
+        proceed = False
+        with self._can_handle_packet_lock:
+            proceed = self._can_handle_packet
+
+        if proceed:
             magic_num, version, command, _, session_id = _util.unpack(packet)
 
             if magic_num == _Constants.MAGIC_NUMBER and version == _Constants.VERSION:
                 if session_id != self._server_session_id:
                     self.send_goodbye()
                     self.signal_close()
-                else:
-                    if command == _Constants.Command.GOODBYE.value:
-                        print("GOODBYE from server.")
-                        self.signal_close()
-                    elif command == _Constants.Command.ALIVE.value and self._sent_data and self._can_send_goodbye:
-                        if self._timestamp != -1:
-                            self._timestamp = -1
-                    else:
-                        print(f"Invalid command: {command}")
-                        self.send_goodbye()
-                        self.signal_close()
+                    return
+
+                if command == _Constants.Command.GOODBYE.value:
+                    print("GOODBYE from server.")
+                    self.signal_close()
+                    return
+
+                with self._sent_data_lock:
+                    if command == _Constants.Command.ALIVE.value and self._sent_data_num > 0:
+                        self._sent_data_num -= 1
+                        with self._timestamp_lock:
+                            if self._timestamp != -1:
+                                self._timestamp = -1
+                        return
+
+                print(f"Invalid command: {command}")
+                self.send_goodbye()
+                self.signal_close()
 
     def hello_exchange(self) -> bool:
         # stop and wait
@@ -117,7 +154,7 @@ class Client:
                     break
 
         queue = _Queue()
-        t = _Thread(target=try_hello_exchange, args=(queue,), daemon=True)
+        t = _threading.Thread(target=try_hello_exchange, args=(queue,), daemon=True)
         t.start()
 
         try:

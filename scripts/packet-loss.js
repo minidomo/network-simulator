@@ -83,6 +83,6 @@ const DECIMAL_ROUND_OFF = 4;
 
     const totalLossRate = totalLossCount / totalLines * 100;
 
-    console.log(`Average loss rate: ${totalLossRate.toFixed(DECIMAL_ROUND_OFF)} (${totalLossCount} / ${totalLines})`);
+    console.log(`Average loss rate (%): ${totalLossRate.toFixed(DECIMAL_ROUND_OFF)} (${totalLossCount} / ${totalLines})`);
 })();
 
