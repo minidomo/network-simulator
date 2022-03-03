@@ -1,3 +1,5 @@
+"""Constants for P0P."""
+
 from enum import Enum as _Enum
 
 MAGIC_NUMBER = 0xC356
@@ -20,3 +22,8 @@ class Response(_Enum):
     NORMAL = 0
     IGNORE = 1
     CLOSE = 2
+
+
+class Signal(_Enum):
+    HELLO = 0
+    CLOSE = 1

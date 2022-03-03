@@ -1,4 +1,5 @@
 # pylint: disable=protected-access
+"""Tests for server functionality."""
 
 import random
 from lib.structures import Server, BufferedWriter, ClientData
@@ -8,8 +9,8 @@ from lib import util
 
 def make_server() -> Server:
     portnum = random.randint(60000, 64000)
-    bf = BufferedWriter(None, "w", 5000000, "utf-8")
-    server = Server(portnum, bf)
+    bf = BufferedWriter(None, 5000000, "utf-8")
+    server = Server(portnum, bf, Constants.TIMEOUT_INTERVAL)
 
     return server
 
@@ -40,8 +41,8 @@ def make_client_data(seq_prev: int, command_prev: int) -> ClientData:
     session_id = random.randint(0, 2**16)
     address = make_address()
     client = ClientData(session_id, address)
-    client.packet_number = seq_prev
-    client.previous_command = command_prev
+    client.prev_packet_num = seq_prev
+    client.prev_command_num = command_prev
     return client
 
 
@@ -115,7 +116,7 @@ def test_response_same_sid_different_hostname():
     client = make_client_data(0, Constants.Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number + 1, client.session_id, "a")
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num + 1, client.session_id, "a")
     address = make_address(portnum=client.address[1])
 
     res = _server._determine_response(packet, address)
@@ -128,7 +129,7 @@ def test_response_same_sid_different_address():
     client = make_client_data(0, Constants.Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number + 1, client.session_id, "a")
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num + 1, client.session_id, "a")
     address = make_address(hostname=client.address[0])
 
     res = _server._determine_response(packet, address)
@@ -141,7 +142,7 @@ def test_response_duplicate_packet_different_command():
     client = make_client_data(0, Constants.Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number, client.session_id, "a")
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num, client.session_id, "a")
 
     res = _server._determine_response(packet, client.address)
 
@@ -153,7 +154,7 @@ def test_response_duplicate_packet_same_command():
     client = make_client_data(0, Constants.Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.HELLO.value, client.packet_number, client.session_id)
+    packet = util.pack(Constants.Command.HELLO.value, client.prev_packet_num, client.session_id)
 
     res = _server._determine_response(packet, client.address)
     sout: str = _server._bf._queue.get()
@@ -167,7 +168,7 @@ def test_response_out_of_order_delivery():
     client = make_client_data(2, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number - 1, client.session_id)
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num - 1, client.session_id)
 
     res = _server._determine_response(packet, client.address)
 
@@ -179,7 +180,7 @@ def test_response_lost_packets():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number + 5, client.session_id, "a")
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num + 5, client.session_id, "a")
 
     res = _server._determine_response(packet, client.address)
 
@@ -198,7 +199,7 @@ def test_response_receive_another_hello():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.HELLO.value, client.packet_number + 1, client.session_id)
+    packet = util.pack(Constants.Command.HELLO.value, client.prev_packet_num + 1, client.session_id)
 
     res = _server._determine_response(packet, client.address)
 
@@ -210,7 +211,7 @@ def test_response_receive_alive():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.ALIVE.value, client.packet_number + 1, client.session_id)
+    packet = util.pack(Constants.Command.ALIVE.value, client.prev_packet_num + 1, client.session_id)
 
     res = _server._determine_response(packet, client.address)
 
@@ -222,7 +223,7 @@ def test_response_receive_goodbye():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.GOODBYE.value, client.packet_number + 1, client.session_id)
+    packet = util.pack(Constants.Command.GOODBYE.value, client.prev_packet_num + 1, client.session_id)
 
     res = _server._determine_response(packet, client.address)
 
@@ -234,7 +235,7 @@ def test_response_receive_data():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number + 1, client.session_id, "a")
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num + 1, client.session_id, "a")
 
     res = _server._determine_response(packet, client.address)
 
@@ -246,7 +247,7 @@ def test_response_receive_unknown_command():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DEFAULT.value, client.packet_number + 1, client.session_id, "a")
+    packet = util.pack(Constants.Command.DEFAULT.value, client.prev_packet_num + 1, client.session_id, "a")
 
     res = _server._determine_response(packet, client.address)
 
@@ -277,7 +278,7 @@ def test_handle_duplicate_packet_different_command():
     client = make_client_data(0, Constants.Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number, client.session_id, "a")
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num, client.session_id, "a")
 
     res = _server.handle_packet(packet, client.address)
 
@@ -293,7 +294,7 @@ def test_handle_out_of_order_delivery():
     client = make_client_data(2, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number - 1, client.session_id)
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num - 1, client.session_id)
 
     res = _server.handle_packet(packet, client.address)
 
@@ -309,7 +310,7 @@ def test_handle_receive_another_hello():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.HELLO.value, client.packet_number + 1, client.session_id)
+    packet = util.pack(Constants.Command.HELLO.value, client.prev_packet_num + 1, client.session_id)
 
     res = _server.handle_packet(packet, client.address)
 
@@ -325,7 +326,7 @@ def test_handle_receive_alive():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.ALIVE.value, client.packet_number + 1, client.session_id)
+    packet = util.pack(Constants.Command.ALIVE.value, client.prev_packet_num + 1, client.session_id)
 
     res = _server.handle_packet(packet, client.address)
 
@@ -341,7 +342,7 @@ def test_handle_receive_goodbye():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.GOODBYE.value, client.packet_number + 1, client.session_id)
+    packet = util.pack(Constants.Command.GOODBYE.value, client.prev_packet_num + 1, client.session_id)
 
     res = _server.handle_packet(packet, client.address)
 
@@ -359,7 +360,7 @@ def test_handle_receive_data():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DATA.value, client.packet_number + 1, client.session_id, "something here")
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
 
     res = _server.handle_packet(packet, client.address)
 
@@ -374,7 +375,7 @@ def test_handle_receive_unknown_command():
     client = make_client_data(1, Constants.Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Constants.Command.DEFAULT.value, client.packet_number + 1, client.session_id, "a")
+    packet = util.pack(Constants.Command.DEFAULT.value, client.prev_packet_num + 1, client.session_id, "a")
 
     res = _server.handle_packet(packet, client.address)
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Event-based client runner."""
 
 import setup_path  # pylint: disable=unused-import
 import sys

@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 # pylint: disable=bare-except
+"""Tests for client functionality."""
 
 import time
 from queue import Queue
@@ -12,8 +13,9 @@ _portnum = 1456
 
 
 def make_client() -> Client:
-    client = Client("localhost", _portnum)
+    client = Client("localhost", _portnum, 2)
     client._server_session_id = 0
+    client._waiting_hello = False
 
     return client
 
@@ -26,12 +28,11 @@ def test_hello():
 
     assert client._can_send_goodbye is False
     assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    assert client._signal_queue.qsize() == 1
 
 
 def test_alive():
     client = make_client()
-    client._seq = 1
 
     client.send_data("data")
 
@@ -40,7 +41,7 @@ def test_alive():
 
     assert client._can_send_goodbye is True
     assert client._can_send_data is True
-    assert client._close_queue.qsize() == 0
+    assert client._signal_queue.qsize() == 0
 
 
 def test_goodbye():
@@ -51,7 +52,7 @@ def test_goodbye():
 
     assert client._can_send_goodbye is False
     assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    assert client._signal_queue.qsize() == 1
 
 
 def test_data():
@@ -62,7 +63,7 @@ def test_data():
 
     assert client._can_send_goodbye is False
     assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    assert client._signal_queue.qsize() == 1
 
 
 def test_no_timeout():
@@ -77,12 +78,13 @@ def test_no_timeout():
     alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
     client.handle_packet(alive, client._server_address)
 
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+    time.sleep(client.timeout_interval)
 
+    assert client._timestamp == -1
     assert client.timed_out() is False
     assert client._can_send_goodbye is True
     assert client._can_send_data is True
-    assert client._close_queue.qsize() == 0
+    assert client._signal_queue.qsize() == 0
 
 
 def test_data_timeout():
@@ -90,12 +92,12 @@ def test_data_timeout():
 
     client.send_data("a")
 
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+    time.sleep(client.timeout_interval)
 
     assert client.timed_out() is True
     assert client._can_send_goodbye is False
     assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    assert client._signal_queue.qsize() == 0
 
 
 def test_goodbye_timeout():
@@ -103,12 +105,12 @@ def test_goodbye_timeout():
 
     client.send_goodbye()
 
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+    time.sleep(client.timeout_interval)
 
     assert client.timed_out() is True
     assert client._can_send_goodbye is False
     assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    assert client._signal_queue.qsize() == 0
 
 
 def test_seq():
@@ -129,47 +131,60 @@ def test_alive_no_data():
     alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
     client.handle_packet(alive, client._server_address)
 
-    assert client._can_send_goodbye is False
-    assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    assert client._can_send_goodbye is True
+    assert client._can_send_data is True
+    assert client._signal_queue.qsize() == 0
 
 
 def test_hello_exchange_timeout():
     client = make_client()
 
-    assert client.hello_exchange() is False
+    client.send_hello()
+
+    time.sleep(client.timeout_interval)
+
+    assert client.timed_out() is True
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
+    assert client._signal_queue.qsize() == 0
 
 
 def test_close_timeout_then_packet():
     client = make_client()
 
     client.send_data("abc")
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+    time.sleep(client.timeout_interval)
     client.timed_out()
-    client.wait_for_close_signal()
+    time.sleep(client.timeout_interval)
+    client.timed_out()
+    signal = client.wait_for_signal()
     client.close()
 
     alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
     client.handle_packet(alive, client._server_address)
 
+    assert signal == Constants.Signal.CLOSE
+    assert client._can_send_goodbye is False
+    assert client._can_send_data is False
     assert client._timestamp != -1
 
 
 def test_wait_for_close():
 
-    def runnable(queue: Queue):
-        client = make_client()
-        client.wait_for_close_signal()
+    def runnable(queue: Queue, client: Client):
+        client.wait_for_signal()
         queue.put(None)
 
+    client = make_client()
+
     queue = Queue()
-    t = Thread(target=runnable, args=(queue,), daemon=True)
+    t = Thread(target=runnable, args=(queue, client), daemon=True)
     t.start()
 
     blocked = False
 
     try:
-        queue.get(timeout=Constants.TIMEOUT_INTERVAL * 2)
+        queue.get(timeout=client.timeout_interval * 2)
     except:
         blocked = True
 
@@ -180,9 +195,9 @@ def test_close_then_keyboard():
     client = make_client()
 
     client.signal_close()
-    client.wait_for_close_signal()
+    client.wait_for_signal()
     client.close()
 
     client.send_data("abc")
 
-    assert client._sent_data_num == 0
+    assert client._seq == 0
