@@ -31,7 +31,7 @@ class Server:
         self._socket.bind((b"0.0.0.0", portnum))
         self._seq = 0
         self._bf = bf
-        self._timeout_interval = timeout_interval
+        self.timeout_interval = timeout_interval
 
         self._client_data_map: "dict[int, _ClientData]" = {}
         self._map_lock = _threading.Lock()
@@ -259,7 +259,7 @@ class Server:
             with self._map_lock:
                 if session_id in self._client_data_map:
                     client = self._client_data_map[session_id]
-                    if client.timestamp != -1 and _time() - client.timestamp > self._timeout_interval:
+                    if client.timestamp != -1 and _time() - client.timestamp > self.timeout_interval:
                         self._client_close(client, False)
 
     def close(self) -> None:
