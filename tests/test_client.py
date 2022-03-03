@@ -110,6 +110,20 @@ def test_goodbye_timeout():
     assert client._can_send_data is False
     assert client._close_queue.qsize() == 1
 
+def test_goodbye_no_timeout():
+    client = make_client()
+
+    client.send_goodbye()
+
+    goodbye = util.pack(Constants.Command.ALIVE.value, 0, 0)
+    client.handle_packet(goodbye, client._server_address)
+
+    time.sleep(Constants.TIMEOUT_INTERVAL)
+
+    assert client.timed_out() is False
+    assert client._can_send_goodbye is True
+    assert client._can_send_data is True
+    assert client._close_queue.qsize() == 0
 
 def test_seq():
     client = make_client()
