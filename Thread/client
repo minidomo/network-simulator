@@ -5,17 +5,17 @@ import setup_path  # pylint: disable=unused-import
 import sys
 import time
 from threading import Thread
-from lib import constants as Constants
-from lib.structures import Client
+from lib import constants
+from lib.structures import ThreadClient
 
 
-def handle_timer(client: Client):
+def handle_timer(client: ThreadClient):
     while not client.closed():
         client.timed_out()
-        time.sleep(Constants.TIMEOUT_INTERVAL)
+        time.sleep(constants.TIMEOUT_INTERVAL)
 
 
-def handle_keyboard(client: Client):
+def handle_keyboard(client: ThreadClient):
     while not client.closed():
         text = sys.stdin.readline()
         if not client.closed():
@@ -27,7 +27,7 @@ def handle_keyboard(client: Client):
                 client.send_data(text)
 
 
-def handle_socket(client: Client):
+def handle_socket(client: ThreadClient):
     while not client.closed():
         packet, remote_addr = client.receive_packet()
         if not client.closed():
@@ -38,7 +38,7 @@ def main():
     hostname = sys.argv[1]
     portnum = int(sys.argv[2])
 
-    client = Client(hostname, portnum, Constants.TIMEOUT_INTERVAL)
+    client = ThreadClient(hostname, portnum, constants.TIMEOUT_INTERVAL)
 
     t1 = Thread(target=handle_socket, args=(client,))
     t1.start()
@@ -49,7 +49,7 @@ def main():
     client.send_hello()
     signal = client.wait_for_signal()
 
-    if signal == Constants.Signal.HELLO:
+    if signal == constants.Signal.HELLO:
         t3 = Thread(target=handle_keyboard, args=(client,), daemon=True)
         t3.start()
 

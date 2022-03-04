@@ -1,6 +1,6 @@
 """A thread-safe and buffered printer."""
 
-from queue import Queue as _Queue
+from queue import Queue
 
 
 class BufferedWriter:
@@ -22,7 +22,7 @@ class BufferedWriter:
         encoding : str
             The encoding scheme.
         """
-        self._queue = _Queue()
+        self._queue = Queue()
         if fd is not None:
             self._stream = open(fd, "w", buffering=buffer_size, encoding=encoding)  # pylint: disable=consider-using-with
 

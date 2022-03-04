@@ -5,7 +5,8 @@ import setup_path  # pylint: disable=unused-import
 import sys
 import random
 import pyuv
-from lib import constants as Constants
+from lib.constants import Command
+from lib import constants
 from lib import util
 
 _session_id = random.randint(0, 2**32)
@@ -37,8 +38,8 @@ def close_client(send: bool):
     if _keyboard is not None:
         _keyboard.stop_read()
     if send:
-        _timer.start(force_close, Constants.TIMEOUT_INTERVAL, 0)
-        send_packet(Constants.Command.GOODBYE.value)
+        _timer.start(force_close, constants.TIMEOUT_INTERVAL, 0)
+        send_packet(Command.GOODBYE.value)
     else:
         force_close()
 
@@ -61,8 +62,8 @@ def handle_keyboard(handle, data: "bytes|None", error):
     else:
         if not _timer_active:
             _timer_active = True
-            _timer.start(handle_timer, Constants.TIMEOUT_INTERVAL, 0)
-        send_packet(Constants.Command.DATA.value, line)
+            _timer.start(handle_timer, constants.TIMEOUT_INTERVAL, 0)
+        send_packet(Command.DATA.value, line)
 
 
 def handle_socket(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error):
@@ -70,14 +71,14 @@ def handle_socket(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error
 
     magic_num, version, command, _, session_id = util.unpack(packet)
 
-    if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
+    if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
         if session_id != _server_session_id:
             close_client(True)
         else:
-            if command == Constants.Command.GOODBYE.value:
+            if command == Command.GOODBYE.value:
                 print("GOODBYE from server.")
                 close_client(False)
-            elif command == Constants.Command.ALIVE.value:
+            elif command == Command.ALIVE.value:
                 _timer_active = False
                 _timer.stop()
             else:
@@ -90,8 +91,8 @@ def hello_exchange(handle, ip_port: "tuple[str,int]", flags, packet: bytes, erro
     global _server_session_id
 
     magic_num, version, command, _, session_id = util.unpack(packet)
-    if magic_num == Constants.MAGIC_NUMBER and version == Constants.VERSION:
-        if command == Constants.Command.HELLO.value:
+    if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
+        if command == Command.HELLO.value:
             _server_session_id = session_id
 
             _socket.stop_recv()
@@ -118,9 +119,9 @@ def main():
     _socket.start_recv(hello_exchange)
 
     _timer = pyuv.Timer(_loop)
-    _timer.start(handle_timer, Constants.TIMEOUT_INTERVAL, 0)
+    _timer.start(handle_timer, constants.TIMEOUT_INTERVAL, 0)
 
-    send_packet(Constants.Command.HELLO.value)
+    send_packet(Command.HELLO.value)
 
     _loop.run()
 

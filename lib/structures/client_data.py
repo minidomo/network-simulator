@@ -1,6 +1,6 @@
 """A class containing information about clients for a server to utilize."""
 
-from ..constants import Command as _Command
+from ..constants import Command
 
 
 class ClientData:
@@ -24,4 +24,4 @@ class ClientData:
         self.prev_packet_num: int = 0
         self.address: "tuple[str,int]" = address
         self.timestamp: int = -1
-        self.prev_command_num: int = _Command.DEFAULT.value
+        self.prev_command_num: int = Command.DEFAULT.value

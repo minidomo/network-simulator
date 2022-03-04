@@ -1,15 +1,16 @@
 """A thread-based client."""
 
-import socket as _socket
-import random as _random
-import threading as _threading
-from queue import Queue as _Queue
-from time import time as _time
-from .. import constants as _Constants
-from .. import util as _util
+import socket
+import random
+from threading import Lock
+from queue import Queue
+from time import time
+from ..constants import Command, Signal
+from .. import constants
+from .. import util
 
 
-class Client:
+class ThreadClient:
     """
     Create a thread-based client with a given server address and timeout interval.
     """
@@ -27,26 +28,26 @@ class Client:
         timeout_interval : float
             The maximum time that can elapse between a timestamp for a timeout.
         """
-        self._socket = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        self._server_address = (_socket.gethostbyname(hostname), portnum)
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._server_address = (socket.gethostbyname(hostname), portnum)
         self._server_session_id = -1
-        self._session_id = _random.randint(0, 2**32)
+        self._session_id = random.randint(0, 2**32)
         self._seq = 0
-        self._signal_queue = _Queue()
+        self._signal_queue = Queue()
 
         self._can_send_goodbye = True
         self._can_send_data = True
-        self._can_send_lock = _threading.Lock()
-        self._can_send_goodbye_lock = _threading.Lock()
+        self._can_send_lock = Lock()
+        self._can_send_goodbye_lock = Lock()
 
         self._waiting_hello = True
-        self._waiting_hello_lock = _threading.Lock()
+        self._waiting_hello_lock = Lock()
 
         self._timestamp = -1
-        self._timestamp_lock = _threading.Lock()
+        self._timestamp_lock = Lock()
 
         self._closed = False
-        self._closed_lock = _threading.Lock()
+        self._closed_lock = Lock()
 
         self.timeout_interval = timeout_interval
 
@@ -57,7 +58,7 @@ class Client:
         with self._closed_lock:
             return self._closed
 
-    def wait_for_signal(self) -> _Constants.Signal:
+    def wait_for_signal(self) -> Signal:
         """
         Blocks the calling thread until a signal is received.
 
@@ -72,7 +73,7 @@ class Client:
         """
         Sends a HELLO signal to a thread that is waiting for a signal.
         """
-        self._signal_queue.put(_Constants.Signal.HELLO)
+        self._signal_queue.put(Signal.HELLO)
 
     def signal_close(self) -> None:
         """
@@ -85,7 +86,7 @@ class Client:
             # prevent the client from sending goodbye and data packets
             self._can_send_goodbye = False
             self._can_send_data = False
-        self._signal_queue.put(_Constants.Signal.CLOSE)
+        self._signal_queue.put(Signal.CLOSE)
 
     def _send_packet(self, command: int, data: "str|None" = None) -> None:
         """
@@ -100,7 +101,7 @@ class Client:
         data : str | None
             The string to send with the packet. Default value is None.
         """
-        encoded_data = _util.pack(command, self._seq, self._session_id, data)
+        encoded_data = util.pack(command, self._seq, self._session_id, data)
         self._seq += 1
         self._socket.sendto(encoded_data, self._server_address)
 
@@ -110,8 +111,8 @@ class Client:
 
         This method will also set a timestamp for when this packet was sent to be used in timed_out().
         """
-        self._timestamp = _time()
-        self._send_packet(_Constants.Command.HELLO.value)
+        self._timestamp = time()
+        self._send_packet(Command.HELLO.value)
 
     def send_data(self, text: str) -> None:
         """
@@ -129,9 +130,9 @@ class Client:
 
                 with self._timestamp_lock:
                     if self._timestamp == -1:
-                        self._timestamp = _time()
+                        self._timestamp = time()
 
-                self._send_packet(_Constants.Command.DATA.value, text)
+                self._send_packet(Command.DATA.value, text)
 
     def send_goodbye(self) -> None:
         """
@@ -145,13 +146,13 @@ class Client:
                 if self._can_send_goodbye:
 
                     with self._timestamp_lock:
-                        self._timestamp = _time()
+                        self._timestamp = time()
 
                     # prevent the client from sending goodbye and data packets
                     self._can_send_goodbye = False
                     self._can_send_data = False
 
-                    self._send_packet(_Constants.Command.GOODBYE.value)
+                    self._send_packet(Command.GOODBYE.value)
 
     def receive_packet(self) -> "tuple[bytes,tuple[str,int]]":
         """
@@ -164,7 +165,7 @@ class Client:
         tuple[bytes,tuple[str,int]]
             The packet that was sent to the client.
         """
-        return self._socket.recvfrom(_Constants.BUFFER_SIZE)
+        return self._socket.recvfrom(constants.BUFFER_SIZE)
 
     def close(self) -> None:
         """
@@ -177,7 +178,7 @@ class Client:
 
         try:
             # this will unblock calls to socket.recvfrom
-            self._socket.shutdown(_socket.SHUT_RDWR)
+            self._socket.shutdown(socket.SHUT_RDWR)
         except:  # pylint: disable=bare-except
             pass
         self._socket.close()
@@ -198,7 +199,7 @@ class Client:
         if not self.closed():
             timeout = False
             with self._timestamp_lock:
-                timeout = self._timestamp != -1 and _time() - self._timestamp > self.timeout_interval
+                timeout = self._timestamp != -1 and time() - self._timestamp > self.timeout_interval
             if timeout:
                 print("timed out")
                 # anytime we timeout, we're definitely not waiting for hello anymore
@@ -231,12 +232,12 @@ class Client:
         if not self.closed():
             # only consider packets from the server and proper size
             if address[0] != self._server_address[0] or address[1] != self._server_address[1] or len(
-                    packet) < _Constants.HEADER_SIZE:
+                    packet) < constants.HEADER_SIZE:
                 return
 
-            magic_num, version, command, _, session_id = _util.unpack(packet)
+            magic_num, version, command, _, session_id = util.unpack(packet)
 
-            if magic_num == _Constants.MAGIC_NUMBER and version == _Constants.VERSION:
+            if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
 
                 # enters this only once for the hello exchange
                 with self._waiting_hello_lock:
@@ -245,7 +246,7 @@ class Client:
                         self._server_session_id = session_id
                         self._timestamp = -1
 
-                        if command == _Constants.Command.HELLO.value:
+                        if command == Command.HELLO.value:
                             self.signal_hello()
                         else:
                             print(f"expected hello, received {command}")
@@ -262,13 +263,13 @@ class Client:
                     return
 
                 # always close when receiving a goodbye from the client
-                if command == _Constants.Command.GOODBYE.value:
+                if command == Command.GOODBYE.value:
                     print("GOODBYE from server.")
                     self.signal_close()
                     return
 
                 # in all scenarios except for hello exchange, receiving alive is ok
-                if command == _Constants.Command.ALIVE.value:
+                if command == Command.ALIVE.value:
                     with self._can_send_goodbye_lock:
                         with self._timestamp_lock:
                             # only reset timestamp for alive when client is not in closing state

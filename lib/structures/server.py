@@ -1,12 +1,13 @@
 """A thread-based server."""
 
-import socket as _socket
-import threading as _threading
-from time import time as _time
-from .. import util as _util
-from .. import constants as _Constants
-from . import ClientData as _ClientData
-from . import BufferedWriter as _BufferedWriter
+import socket
+from threading import Lock
+from time import time
+from ..constants import Command, Response
+from .. import util
+from .. import constants
+from . import ClientData
+from . import BufferedWriter
 
 
 class Server:
@@ -14,7 +15,7 @@ class Server:
     A thread-based server.
     """
 
-    def __init__(self, portnum: int, bf: _BufferedWriter, timeout_interval: int) -> None:
+    def __init__(self, portnum: int, bf: BufferedWriter, timeout_interval: float) -> None:
         """
         Creates a thread-based server with a given port number, buffered writer, timeout_interval.
 
@@ -24,20 +25,20 @@ class Server:
             The port number for the server to listen to.
         bf : BufferedWriter
             The buffered writer to use.
-        timeout_interval : int
+        timeout_interval : float
             The maximum amount of time for timeout.
         """
-        self._socket = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind((b"0.0.0.0", portnum))
         self._seq = 0
         self._bf = bf
         self.timeout_interval = timeout_interval
 
-        self._client_data_map: "dict[int, _ClientData]" = {}
-        self._map_lock = _threading.Lock()
+        self._client_data_map: "dict[int, ClientData]" = {}
+        self._map_lock = Lock()
 
         self._closed = False
-        self._closed_lock = _threading.Lock()
+        self._closed_lock = Lock()
 
     def closed(self) -> bool:
         with self._closed_lock:
@@ -60,11 +61,11 @@ class Server:
         data : str | None
             The data to send with the packet. Default value is None.
         """
-        encoded_data = _util.pack(command, self._seq, session_id, data)
+        encoded_data = util.pack(command, self._seq, session_id, data)
         self._socket.sendto(encoded_data, address)
         self._seq += 1
 
-    def _determine_response(self, packet: bytes, address: "tuple[str,int]") -> _Constants.Response:
+    def _determine_response(self, packet: bytes, address: "tuple[str,int]") -> Response:
         """
         Determines the response for the server to take given a packet and address.
 
@@ -81,59 +82,60 @@ class Server:
             The server's response to the packet and address.
         """
         # not a P0P packet
-        if len(packet) < _Constants.HEADER_SIZE:
-            return _Constants.Response.IGNORE
+        if len(packet) < constants.HEADER_SIZE:
+            return Response.IGNORE
 
-        packet_header = packet[:_Constants.HEADER_SIZE]
-        magic_num, version, command, seq, session_id = _util.unpack(packet_header)
+        packet_header = packet[:constants.HEADER_SIZE]
+        magic_num, version, command, seq, session_id = util.unpack(packet_header)
 
         # not a P0P packet
-        if magic_num != _Constants.MAGIC_NUMBER or version != _Constants.VERSION:
-            return _Constants.Response.IGNORE
+        if magic_num != constants.MAGIC_NUMBER or version != constants.VERSION:
+            return Response.IGNORE
 
         with self._map_lock:
             client = self._client_data_map.get(session_id, None)
             if client is None:
+                # if seq == 0 and command == Command.HELLO.value
                 if seq == 0:
-                    if command == _Constants.Command.HELLO.value:
-                        return _Constants.Response.NORMAL
+                    if command == Command.HELLO.value:
+                        return Response.NORMAL
                     else:
-                        return _Constants.Response.IGNORE
+                        return Response.IGNORE
                 else:
-                    return _Constants.Response.IGNORE
+                    return Response.IGNORE
             else:
                 # existing session id but from different address
                 if address[0] != client.address[0] or address[1] != client.address[1]:
-                    return _Constants.Response.IGNORE
+                    return Response.IGNORE
 
                 if seq == client.prev_packet_num:
                     # duplicate packet
-                    values = (_Constants.Command.HELLO.value, _Constants.Command.DATA.value,
-                              _Constants.Command.GOODBYE.value)
+                    values = (Command.HELLO.value, Command.DATA.value,
+                              Command.GOODBYE.value)
                     if (command in values and command == client.prev_command_num):
                         self._client_log(session_id, "Duplicate packet!", seq)
-                        return _Constants.Response.IGNORE
+                        return Response.IGNORE
                     else:
-                        return _Constants.Response.CLOSE
+                        return Response.CLOSE
                 elif seq < client.prev_packet_num:
                     # out of order delivery (could also be wrap around but will not be tested on it)
-                    return _Constants.Response.CLOSE
+                    return Response.CLOSE
                 else:
                     if seq > client.prev_packet_num + 1:
                         for i in range(client.prev_packet_num + 1, seq):
                             self._client_log(session_id, "Lost packet!", i)
-                    if command == _Constants.Command.HELLO.value:
-                        return _Constants.Response.CLOSE
-                    elif command == _Constants.Command.ALIVE.value:
-                        return _Constants.Response.CLOSE
-                    elif command == _Constants.Command.GOODBYE.value:
-                        return _Constants.Response.NORMAL
-                    elif command == _Constants.Command.DATA.value:
-                        return _Constants.Response.NORMAL
+                    if command == Command.HELLO.value:
+                        return Response.CLOSE
+                    elif command == Command.ALIVE.value:
+                        return Response.CLOSE
+                    elif command == Command.GOODBYE.value:
+                        return Response.NORMAL
+                    elif command == Command.DATA.value:
+                        return Response.NORMAL
                     else:
-                        return _Constants.Response.CLOSE
+                        return Response.CLOSE
 
-    def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> "_Constants.Command|None":
+    def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> "Command|None":
         """
         Process a packet if the server is not closed.
 
@@ -149,14 +151,14 @@ class Server:
         Command | None
             The command that was sent back to the given address. None if nothing was sent.
         """
-        ret_command: "_Constants.Command|None" = None
+        ret_command: "Command|None" = None
 
         if not self.closed():
             response = self._determine_response(packet, address)
 
-            if response == _Constants.Response.NORMAL:
-                packet_header = packet[:_Constants.HEADER_SIZE]
-                _, _, command, seq, session_id = _util.unpack(packet_header)
+            if response == Response.NORMAL:
+                packet_header = packet[:constants.HEADER_SIZE]
+                _, _, command, seq, session_id = util.unpack(packet_header)
 
                 with self._map_lock:
                     if session_id in self._client_data_map:
@@ -165,50 +167,50 @@ class Server:
                         client.prev_packet_num = seq
                         client.prev_command_num = command
 
-                if command == _Constants.Command.HELLO.value:
-                    ret_command = _Constants.Command.HELLO
+                if command == Command.HELLO.value:
+                    ret_command = Command.HELLO
                     self.send_packet(address, command, session_id)
                     self._client_log(session_id, "Session created", seq)
 
                     with self._map_lock:
-                        client = _ClientData(session_id, address)
-                        client.timestamp = _time()
+                        client = ClientData(session_id, address)
+                        client.timestamp = time()
                         client.prev_packet_num = seq
                         client.prev_command_num = command
                         self._client_data_map[session_id] = client
 
-                elif command == _Constants.Command.DATA.value:
-                    data = packet[_Constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
+                elif command == Command.DATA.value:
+                    data = packet[constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
 
                     with self._map_lock:
                         if session_id in self._client_data_map:
-                            ret_command = _Constants.Command.ALIVE
+                            ret_command = Command.ALIVE
                             client = self._client_data_map[session_id]
-                            self.send_packet(address, _Constants.Command.ALIVE.value, session_id)
+                            self.send_packet(address, Command.ALIVE.value, session_id)
                             self._client_log(session_id, data, seq)
-                            client.timestamp = _time()
+                            client.timestamp = time()
 
-                elif command == _Constants.Command.GOODBYE.value:
+                elif command == Command.GOODBYE.value:
                     with self._map_lock:
                         if session_id in self._client_data_map:
-                            ret_command = _Constants.Command.GOODBYE
+                            ret_command = Command.GOODBYE
                             client = self._client_data_map[session_id]
                             self._client_close(client, True)
 
                 else:
                     raise Exception("Unknown command")
 
-            elif response == _Constants.Response.CLOSE:
-                packet_header = packet[:_Constants.HEADER_SIZE]
-                _, _, _, _, session_id = _util.unpack(packet_header)
+            elif response == Response.CLOSE:
+                packet_header = packet[:constants.HEADER_SIZE]
+                _, _, _, _, session_id = util.unpack(packet_header)
 
                 with self._map_lock:
                     if session_id in self._client_data_map:
-                        ret_command = _Constants.Command.GOODBYE
+                        ret_command = Command.GOODBYE
                         client = self._client_data_map[session_id]
                         self._client_close(client, False)
 
-            elif response == _Constants.Response.IGNORE:
+            elif response == Response.IGNORE:
                 pass
             else:
                 raise Exception("Unknown response")
@@ -233,7 +235,7 @@ class Server:
         else:
             self._bf.write(f"0x{session_id:08x} [{seq}] {s}")
 
-    def _client_close(self, client: _ClientData, from_client: bool) -> None:
+    def _client_close(self, client: ClientData, from_client: bool) -> None:
         """
         Closes the given client.
 
@@ -246,7 +248,7 @@ class Server:
         """
         del self._client_data_map[client.session_id]
 
-        self.send_packet(client.address, _Constants.Command.GOODBYE.value, client.session_id)
+        self.send_packet(client.address, Command.GOODBYE.value, client.session_id)
         if from_client:
             self._client_log(client.session_id, "GOODBYE from client.", client.prev_packet_num)
         self._client_log(client.session_id, "Session Closed")
@@ -259,7 +261,7 @@ class Server:
             with self._map_lock:
                 if session_id in self._client_data_map:
                     client = self._client_data_map[session_id]
-                    if client.timestamp != -1 and _time() - client.timestamp > self.timeout_interval:
+                    if client.timestamp != -1 and time() - client.timestamp > self.timeout_interval:
                         self._client_close(client, False)
 
     def close(self) -> None:
@@ -275,7 +277,7 @@ class Server:
             for client in list(self._client_data_map.values()):
                 self._client_close(client, False)
         try:
-            self._socket.shutdown(_socket.SHUT_RDWR)
+            self._socket.shutdown(socket.SHUT_RDWR)
         except:  # pylint: disable=bare-except
             pass
         self._socket.close()
@@ -291,4 +293,4 @@ class Server:
         tuple[bytes,tuple[str,int]]
             The packet that was sent to the server.
         """
-        return self._socket.recvfrom(_Constants.BUFFER_SIZE)
+        return self._socket.recvfrom(constants.BUFFER_SIZE)

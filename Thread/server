@@ -5,7 +5,7 @@ import setup_path  # pylint: disable=unused-import
 import sys
 from time import sleep
 from threading import Thread
-from lib import constants as Constants
+from lib import constants
 from lib.structures import BufferedWriter, Server
 
 
@@ -26,7 +26,7 @@ def handle_keyboard(server: Server):
 def handle_timer(server: Server):
     while not server.closed():
         server.prune_inactive_clients()
-        sleep(Constants.TIMEOUT_INTERVAL)
+        sleep(constants.TIMEOUT_INTERVAL)
 
 
 def handle_socket(server: Server):
@@ -39,7 +39,7 @@ def main():
     portnum = int(sys.argv[1])
 
     bf = BufferedWriter(sys.stdout.fileno(), 5000000, "utf-8")
-    server = Server(portnum, bf, Constants.TIMEOUT_INTERVAL)
+    server = Server(portnum, bf, constants.TIMEOUT_INTERVAL)
 
     bf.write(f"Waiting on port {portnum}...")
 
