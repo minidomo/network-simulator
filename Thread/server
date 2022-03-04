@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Thread-based server runner."""
 
 import setup_path  # pylint: disable=unused-import
 import sys
@@ -9,7 +10,7 @@ from lib.structures import BufferedWriter, Server
 
 
 def handle_print(server: Server, bf: BufferedWriter):
-    while not server.closed:
+    while not server.closed():
         bf.flush()
         sleep(2)
 
@@ -23,23 +24,22 @@ def handle_keyboard(server: Server):
 
 
 def handle_timer(server: Server):
-    while not server.closed:
+    while not server.closed():
         server.prune_inactive_clients()
         sleep(Constants.TIMEOUT_INTERVAL)
 
 
 def handle_socket(server: Server):
-    while not server.closed:
+    while not server.closed():
         packet, remote_addr = server.receive_packet()
-        if not server.closed:
-            server.handle_packet(packet, remote_addr)
+        server.handle_packet(packet, remote_addr)
 
 
 def main():
     portnum = int(sys.argv[1])
 
-    bf = BufferedWriter(sys.stdout.fileno(), "w", 5000000, "utf-8")
-    server = Server(portnum, bf)
+    bf = BufferedWriter(sys.stdout.fileno(), 5000000, "utf-8")
+    server = Server(portnum, bf, Constants.TIMEOUT_INTERVAL)
 
     bf.write(f"Waiting on port {portnum}...")
 

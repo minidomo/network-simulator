@@ -1,202 +1,457 @@
 # pylint: disable=protected-access
 # pylint: disable=bare-except
+"""Tests for client functionality."""
 
 import time
-from queue import Queue
-from threading import Thread
+import random
 from lib.structures import Client
 from lib import util
 from lib import constants as Constants
 
-_portnum = 1456
 
-
-def make_client() -> Client:
-    client = Client("localhost", _portnum)
-    client._server_session_id = 0
+def make_client(stage: str) -> Client:
+    portnum = random.randint(60000, 64000)
+    client = Client("localhost", portnum, 1)
+    if stage == "hello":
+        client._waiting_hello = True
+    else:
+        client._seq = 1
+        client._server_session_id = 0
+        client._waiting_hello = False
+        if stage == "ready":
+            pass
+        else:
+            client._timestamp = time.time()
+            client._seq = 2
+            client._can_send_goodbye = False
+            client._can_send_data = False
+            if stage == "closing":
+                pass
+            elif stage == "closed":
+                client.close()
 
     return client
 
 
-def test_hello():
-    client = make_client()
+# tests
+class TestHelloExchange:
+    """
+    Testing hello exchange stage
+    """
 
-    hello = util.pack(Constants.Command.HELLO.value, 0, 0)
-    client.handle_packet(hello, client._server_address)
+    def test_bad_address(self):
+        client = make_client("hello")
 
-    assert client._can_send_goodbye is False
-    assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+        client.send_hello()
+        if not client.timed_out():
+            packet = util.pack(Constants.Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, ("odfgjhiodfh", client._server_address[1]))
+
+        assert client._seq == 1
+        assert client._timestamp != -1
+        assert client._waiting_hello is True
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
+
+    def test_bad_packet_header(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        if not client.timed_out():
+            packet = util._pack(Constants.PACKET_FORMAT, Constants.MAGIC_NUMBER + 1, Constants.VERSION,
+                                Constants.Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 1
+        assert client._timestamp != -1
+        assert client._waiting_hello is True
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
+
+    def test_small_packet(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        if not client.timed_out():
+            packet = b"osdif"
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 1
+        assert client._timestamp != -1
+        assert client._waiting_hello is True
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
+
+    def test_good(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        if not client.timed_out():
+            packet = util.pack(Constants.Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 1
+        assert client._timestamp == -1
+        assert client._waiting_hello is False
+        assert client._server_session_id == 123
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.HELLO
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
+
+    def test_bad(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        if not client.timed_out():
+            packet = util.pack(Constants.Command.ALIVE.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_hello is False
+        assert client._server_session_id == 123
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
+    def test_one_timeout(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        time.sleep(client.timeout_interval)
+        if not client.timed_out():
+            packet = util.pack(Constants.Command.ALIVE.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_hello is False
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
+    def test_one_timeout_good(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        time.sleep(client.timeout_interval)
+        if client.timed_out():
+            packet = util.pack(Constants.Command.GOODBYE.value, 1, 123)
+            client.handle_packet(packet, client._server_address)
+        else:
+            packet = util.pack(Constants.Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_hello is False
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
+    def test_one_timeout_bad(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        time.sleep(client.timeout_interval)
+        if client.timed_out():
+            packet = util.pack(Constants.Command.HELLO.value, 1, 123)
+            client.handle_packet(packet, client._server_address)
+        else:
+            packet = util.pack(Constants.Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_hello is False
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
+    def test_one_timeout_ignore(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        time.sleep(client.timeout_interval)
+        if client.timed_out():
+            packet = util.pack(Constants.Command.ALIVE.value, 1, 123)
+            client.handle_packet(packet, client._server_address)
+        else:
+            packet = util.pack(Constants.Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_hello is False
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
+    def test_two_timeout(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        time.sleep(client.timeout_interval)
+        if client.timed_out():
+            time.sleep(client.timeout_interval)
+            client.timed_out()
+        else:
+            packet = util.pack(Constants.Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_hello is False
+        assert client._server_session_id == -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
 
-def test_alive():
-    client = make_client()
-    client._seq = 1
+class TestReady:
+    """
+    Testing ready stage
+    """
 
-    client.send_data("data")
+    def test_pre_ignore(self):
+        client = make_client("ready")
 
-    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
-    client.handle_packet(alive, client._server_address)
+        packet = util.pack(Constants.Command.ALIVE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
 
-    assert client._can_send_goodbye is True
-    assert client._can_send_data is True
-    assert client._close_queue.qsize() == 0
+        assert client._seq == 1
+        assert client._timestamp == -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
 
+    def test_pre_goodbye(self):
+        client = make_client("ready")
 
-def test_goodbye():
-    client = make_client()
+        packet = util.pack(Constants.Command.GOODBYE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
 
-    goodbye = util.pack(Constants.Command.GOODBYE.value, 0, 0)
-    client.handle_packet(goodbye, client._server_address)
+        assert client._seq == 1
+        assert client._timestamp == -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
-    assert client._can_send_goodbye is False
-    assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    def test_pre_bad(self):
+        client = make_client("ready")
 
+        packet = util.pack(Constants.Command.DATA.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
 
-def test_data():
-    client = make_client()
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
-    data = util.pack(Constants.Command.DATA.value, 0, 0)  # ignore actual data since that would get split off
-    client.handle_packet(data, client._server_address)
+    def test_send_data(self):
+        client = make_client("ready")
 
-    assert client._can_send_goodbye is False
-    assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+        client.send_data("test")
 
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
 
-def test_no_timeout():
-    client = make_client()
+    def test_send_data_receive_alive(self):
+        client = make_client("ready")
 
-    client.send_data("1")
-    client.send_data("2")
-    client.send_data("3")
-    client.send_data("4")
-    client.send_data("5")
+        client.send_data("test")
+        packet = util.pack(Constants.Command.ALIVE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
 
-    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
-    client.handle_packet(alive, client._server_address)
+        assert client._seq == 2
+        assert client._timestamp == -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
 
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+    def test_send_data_receive_goodbye(self):
+        client = make_client("ready")
 
-    assert client.timed_out() is False
-    assert client._can_send_goodbye is True
-    assert client._can_send_data is True
-    assert client._close_queue.qsize() == 0
+        client.send_data("test")
+        packet = util.pack(Constants.Command.GOODBYE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
 
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
-def test_data_timeout():
-    client = make_client()
+    def test_send_data_receive_random(self):
+        client = make_client("ready")
 
-    client.send_data("a")
+        client.send_data("test")
+        packet = util.pack(Constants.Command.DEFAULT.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
 
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+        assert client._seq == 3
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
-    assert client.timed_out() is True
-    assert client._can_send_goodbye is False
-    assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+    def test_send_data_timeout(self):
+        client = make_client("ready")
 
+        client.send_data("test")
+        time.sleep(client.timeout_interval)
+        client.timed_out()
 
-def test_goodbye_timeout():
-    client = make_client()
+        assert client._seq == 3
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
-    client.send_goodbye()
+    def test_send_data_bad_session_id(self):
+        client = make_client("ready")
 
-    time.sleep(Constants.TIMEOUT_INTERVAL)
+        client.send_data("test")
+        packet = util.pack(Constants.Command.ALIVE.value, 0, client._server_session_id + 1)
+        client.handle_packet(packet, client._server_address)
 
-    assert client.timed_out() is True
-    assert client._can_send_goodbye is False
-    assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
+        assert client._seq == 3
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
-def test_goodbye_no_timeout():
-    client = make_client()
+    def test_send_data_twice_timestamp(self):
+        client = make_client("ready")
 
-    client.send_goodbye()
+        client.send_data("test")
+        f_timestamp = client._timestamp
+        client.send_data("test")
 
-    goodbye = util.pack(Constants.Command.ALIVE.value, 0, 0)
-    client.handle_packet(goodbye, client._server_address)
-
-    time.sleep(Constants.TIMEOUT_INTERVAL)
-
-    assert client.timed_out() is False
-    assert client._can_send_goodbye is True
-    assert client._can_send_data is True
-    assert client._close_queue.qsize() == 0
-
-def test_seq():
-    client = make_client()
-
-    client._send_packet(Constants.Command.HELLO.value)
-    client._send_packet(Constants.Command.DATA.value, "1")
-    client._send_packet(Constants.Command.DATA.value, "2")
-    client._send_packet(Constants.Command.DATA.value, "3")
-    client._send_packet(Constants.Command.DATA.value, "4")
-
-    assert client._seq == 5
-
-
-def test_alive_no_data():
-    client = make_client()
-
-    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
-    client.handle_packet(alive, client._server_address)
-
-    assert client._can_send_goodbye is False
-    assert client._can_send_data is False
-    assert client._close_queue.qsize() == 1
-
-
-def test_hello_exchange_timeout():
-    client = make_client()
-
-    assert client.hello_exchange() is False
-
-
-def test_close_timeout_then_packet():
-    client = make_client()
-
-    client.send_data("abc")
-    time.sleep(Constants.TIMEOUT_INTERVAL)
-    client.timed_out()
-    client.wait_for_close_signal()
-    client.close()
-
-    alive = util.pack(Constants.Command.ALIVE.value, 0, 0)
-    client.handle_packet(alive, client._server_address)
-
-    assert client._timestamp != -1
+        assert client._seq == 3
+        assert client._timestamp == f_timestamp
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
 
 
-def test_wait_for_close():
+class TestClosing:
+    """
+    Testing closing stage
+    """
 
-    def runnable(queue: Queue):
-        client = make_client()
-        client.wait_for_close_signal()
-        queue.put(None)
+    def test_receive_alive(self):
+        client = make_client("closing")
 
-    queue = Queue()
-    t = Thread(target=runnable, args=(queue,), daemon=True)
-    t.start()
+        packet = util.pack(Constants.Command.ALIVE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
 
-    blocked = False
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 0
 
-    try:
-        queue.get(timeout=Constants.TIMEOUT_INTERVAL * 2)
-    except:
-        blocked = True
+    def test_receive_goodbye(self):
+        client = make_client("closing")
 
-    assert blocked is True
+        packet = util.pack(Constants.Command.GOODBYE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+
+    def test_receive_random(self):
+        client = make_client("closing")
+
+        packet = util.pack(Constants.Command.DEFAULT.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+
+    def test_timeout(self):
+        client = make_client("closing")
+
+        time.sleep(client.timeout_interval)
+        client.timed_out()
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
+
+    def test_receive_goodbye_bad_session_id(self):
+        client = make_client("closing")
+
+        packet = util.pack(Constants.Command.GOODBYE.value, 0, client._server_session_id + 1)
+        client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._signal_queue.get() == Constants.Signal.CLOSE
 
 
-def test_close_then_keyboard():
-    client = make_client()
+class TestClosed:
+    """
+    Testing closed stage
+    """
 
-    client.signal_close()
-    client.wait_for_close_signal()
-    client.close()
+    def test_timeout(self):
+        client = make_client("closed")
 
-    client.send_data("abc")
+        time.sleep(client.timeout_interval)
+        ret_val = client.timed_out()
 
-    assert client._sent_data_num == 0
+        assert ret_val is None
+        assert client._signal_queue.qsize() == 0
+
+    def test_send_data(self):
+        client = make_client("closed")
+
+        client.send_data("test")
+
+        assert client._seq == 2
+
+    def test_receive_goodbye(self):
+        client = make_client("closed")
+
+        packet = util.pack(Constants.Command.GOODBYE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
+
+        assert client._signal_queue.qsize() == 0
+
+    def test_receive_alive(self):
+        client = make_client("closed")
+
+        packet = util.pack(Constants.Command.ALIVE.value, 0, client._server_session_id)
+        client.handle_packet(packet, client._server_address)
+
+        assert client._signal_queue.qsize() == 0

@@ -1,3 +1,5 @@
+"""Set up path for non-module Python files."""
+
 from pathlib import Path
 import sys
 
