@@ -1,6 +1,7 @@
 # pylint: disable=protected-access
 """Tests for server functionality."""
 
+import time
 import random
 from lib.structures import Server, BufferedWriter, ClientData
 from lib import constants as Constants
@@ -10,7 +11,7 @@ from lib import util
 def make_server() -> Server:
     portnum = random.randint(60000, 64000)
     bf = BufferedWriter(None, 5000000, "utf-8")
-    server = Server(portnum, bf, Constants.TIMEOUT_INTERVAL)
+    server = Server(portnum, bf, 1)
 
     return server
 
@@ -384,3 +385,30 @@ def test_handle_receive_unknown_command():
     assert res == Constants.Command.GOODBYE
     assert sout.endswith("Session Closed")
     assert client.session_id not in _server._client_data_map
+
+
+def test_timeout_no_remove():
+    reset_server(_server)
+    client = make_client_data(1, Constants.Command.DATA.value)
+    _server._client_data_map[client.session_id] = client
+
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
+
+    _server.handle_packet(packet, client.address)
+    _server.prune_inactive_clients()
+
+    assert len(_server._client_data_map) == 1
+
+
+def test_timeout_remove():
+    reset_server(_server)
+    client = make_client_data(1, Constants.Command.DATA.value)
+    _server._client_data_map[client.session_id] = client
+
+    packet = util.pack(Constants.Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
+
+    _server.handle_packet(packet, client.address)
+    time.sleep(_server.timeout_interval)
+    _server.prune_inactive_clients()
+
+    assert len(_server._client_data_map) == 0

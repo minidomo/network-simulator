@@ -14,7 +14,7 @@ class Client:
     Create a thread-based client with a given server address and timeout interval.
     """
 
-    def __init__(self, hostname: str, portnum: int, timeout_interval: int) -> None:
+    def __init__(self, hostname: str, portnum: int, timeout_interval: float) -> None:
         """
         Initializes the client.
 
@@ -24,22 +24,23 @@ class Client:
             The hostname of the server to contact.
         portnum : int
             The port number of the server to contact.
-        timeout_interval : int
+        timeout_interval : float
             The maximum time that can elapse between a timestamp for a timeout.
         """
         self._socket = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        self._server_address = (hostname, portnum)
+        self._server_address = (_socket.gethostbyname(hostname), portnum)
         self._server_session_id = -1
         self._session_id = _random.randint(0, 2**32)
         self._seq = 0
         self._signal_queue = _Queue()
-        self._waiting_hello = True
-        self._time_out_count = 0
 
         self._can_send_goodbye = True
         self._can_send_data = True
         self._can_send_lock = _threading.Lock()
         self._can_send_goodbye_lock = _threading.Lock()
+
+        self._waiting_hello = True
+        self._waiting_hello_lock = _threading.Lock()
 
         self._timestamp = -1
         self._timestamp_lock = _threading.Lock()
@@ -200,8 +201,15 @@ class Client:
                 timeout = self._timestamp != -1 and _time() - self._timestamp > self.timeout_interval
             if timeout:
                 print("timed out")
-                self._time_out_count += 1
-                if self._time_out_count == 1:
+                # anytime we timeout, we're definitely not waiting for hello anymore
+                with self._waiting_hello_lock:
+                    self._waiting_hello = False
+
+                goodbye = False
+                with self._can_send_goodbye_lock:
+                    goodbye = self._can_send_goodbye
+
+                if goodbye:
                     self.send_goodbye()
                 else:
                     self.signal_close()
@@ -221,26 +229,33 @@ class Client:
             The address from where this packet originated.
         """
         if not self.closed():
+            # only consider packets from the server and proper size
+            if address[0] != self._server_address[0] or address[1] != self._server_address[1] or len(
+                    packet) < _Constants.HEADER_SIZE:
+                return
+
             magic_num, version, command, _, session_id = _util.unpack(packet)
 
             if magic_num == _Constants.MAGIC_NUMBER and version == _Constants.VERSION:
 
                 # enters this only once for the hello exchange
-                if self._waiting_hello:
-                    self._waiting_hello = False
-                    self._server_session_id = session_id
+                with self._waiting_hello_lock:
+                    if self._waiting_hello:
+                        self._waiting_hello = False
+                        self._server_session_id = session_id
+                        self._timestamp = -1
 
-                    if command == _Constants.Command.HELLO.value:
-                        self.signal_hello()
-                    else:
-                        print(f"expected hello, received {command}")
-                        self.send_goodbye()
-                        self.signal_close()
-                    return
+                        if command == _Constants.Command.HELLO.value:
+                            self.signal_hello()
+                        else:
+                            print(f"expected hello, received {command}")
+                            self.send_goodbye()
+                            self.signal_close()
+                        return
 
                 # checks if the session id matches with the session id from the hello exchange
                 # if not equal, assume server has become crazy
-                if session_id != self._server_session_id:
+                if self._server_session_id not in (-1, session_id):
                     print(f"different session id: {self._server_session_id} != {session_id}")
                     self.send_goodbye()
                     self.signal_close()
