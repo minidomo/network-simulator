@@ -5,7 +5,7 @@ import random
 from threading import Lock
 from queue import Queue
 from time import time
-from ..constants import Command, Signal
+from ..constants import Command
 from .. import constants
 from .. import util
 
@@ -40,8 +40,8 @@ class ThreadClient:
         self._can_send_lock = Lock()
         self._can_send_goodbye_lock = Lock()
 
-        self._waiting_hello = True
-        self._waiting_hello_lock = Lock()
+        self._waiting_for_hello = True
+        self._waiting_for_hello_lock = Lock()
 
         self._timestamp = -1
         self._timestamp_lock = Lock()
@@ -51,29 +51,35 @@ class ThreadClient:
 
         self.timeout_interval = timeout_interval
 
+    def is_waiting_for_hello(self) -> bool:
+        """
+        Returns True if the client is waiting for hello, False otherwise.
+
+        Returns
+        -------
+        bool
+            True if the client is waiting for hello, False otherwise
+        """
+        with self._waiting_for_hello_lock:
+            return self._waiting_for_hello
+
     def closed(self) -> bool:
         """
-        Returns True if the client is closed, false otherwise.
+        Returns True if the client is closed, False otherwise.
+
+        Returns
+        -------
+        bool
+            True if the client is closed, False otherwise
         """
         with self._closed_lock:
             return self._closed
 
-    def wait_for_signal(self) -> Signal:
+    def wait_for_signal(self) -> None:
         """
         Blocks the calling thread until a signal is received.
-
-        Returns
-        -------
-        Signal
-            Returns the first signal received.
         """
-        return self._signal_queue.get()
-
-    def signal_hello(self) -> None:
-        """
-        Sends a HELLO signal to a thread that is waiting for a signal.
-        """
-        self._signal_queue.put(Signal.HELLO)
+        self._signal_queue.get()
 
     def signal_close(self) -> None:
         """
@@ -86,7 +92,7 @@ class ThreadClient:
             # prevent the client from sending goodbye and data packets
             self._can_send_goodbye = False
             self._can_send_data = False
-        self._signal_queue.put(Signal.CLOSE)
+        self._signal_queue.put(None)
 
     def _send_packet(self, command: int, data: "str|None" = None) -> None:
         """
@@ -111,7 +117,9 @@ class ThreadClient:
 
         This method will also set a timestamp for when this packet was sent to be used in timed_out().
         """
-        self._timestamp = time()
+        with self._timestamp_lock:
+            self._timestamp = time()
+
         self._send_packet(Command.HELLO.value)
 
     def send_data(self, text: str) -> None:
@@ -203,8 +211,8 @@ class ThreadClient:
             if timeout:
                 print("timed out")
                 # anytime we timeout, we're definitely not waiting for hello anymore
-                with self._waiting_hello_lock:
-                    self._waiting_hello = False
+                with self._waiting_for_hello_lock:
+                    self._waiting_for_hello = False
 
                 goodbye = False
                 with self._can_send_goodbye_lock:
@@ -240,15 +248,15 @@ class ThreadClient:
             if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
 
                 # enters this only once for the hello exchange
-                with self._waiting_hello_lock:
-                    if self._waiting_hello:
-                        self._waiting_hello = False
+                with self._waiting_for_hello_lock:
+                    if self._waiting_for_hello:
+                        self._waiting_for_hello = False
                         self._server_session_id = session_id
-                        self._timestamp = -1
 
-                        if command == Command.HELLO.value:
-                            self.signal_hello()
-                        else:
+                        with self._timestamp_lock:
+                            self._timestamp = -1
+
+                        if command != Command.HELLO.value:
                             print(f"expected hello, received {command}")
                             self.send_goodbye()
                             self.signal_close()

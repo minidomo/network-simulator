@@ -32,13 +32,14 @@ class Server:
         self._socket.bind((b"0.0.0.0", portnum))
         self._seq = 0
         self._bf = bf
-        self.timeout_interval = timeout_interval
 
         self._client_data_map: "dict[int, ClientData]" = {}
         self._map_lock = Lock()
 
         self._closed = False
         self._closed_lock = Lock()
+
+        self.timeout_interval = timeout_interval
 
     def closed(self) -> bool:
         with self._closed_lock:
@@ -110,8 +111,7 @@ class Server:
 
                 if seq == client.prev_packet_num:
                     # duplicate packet
-                    values = (Command.HELLO.value, Command.DATA.value,
-                              Command.GOODBYE.value)
+                    values = (Command.HELLO.value, Command.DATA.value, Command.GOODBYE.value)
                     if (command in values and command == client.prev_command_num):
                         self._client_log(session_id, "Duplicate packet!", seq)
                         return Response.IGNORE

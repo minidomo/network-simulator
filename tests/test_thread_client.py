@@ -4,7 +4,7 @@
 
 import time
 import random
-from lib.constants import Command, Signal
+from lib.constants import Command
 from lib.structures import ThreadClient
 from lib import util
 from lib import constants
@@ -14,11 +14,11 @@ def make_client(stage: str) -> ThreadClient:
     portnum = random.randint(60000, 64000)
     client = ThreadClient("localhost", portnum, 1)
     if stage == "hello":
-        client._waiting_hello = True
+        client._waiting_for_hello = True
     else:
         client._seq = 1
         client._server_session_id = 0
-        client._waiting_hello = False
+        client._waiting_for_hello = False
         if stage == "ready":
             pass
         else:
@@ -50,7 +50,7 @@ class TestHelloExchange:
 
         assert client._seq == 1
         assert client._timestamp != -1
-        assert client._waiting_hello is True
+        assert client._waiting_for_hello is True
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
@@ -67,7 +67,7 @@ class TestHelloExchange:
 
         assert client._seq == 1
         assert client._timestamp != -1
-        assert client._waiting_hello is True
+        assert client._waiting_for_hello is True
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
@@ -83,7 +83,7 @@ class TestHelloExchange:
 
         assert client._seq == 1
         assert client._timestamp != -1
-        assert client._waiting_hello is True
+        assert client._waiting_for_hello is True
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
@@ -99,10 +99,9 @@ class TestHelloExchange:
 
         assert client._seq == 1
         assert client._timestamp == -1
-        assert client._waiting_hello is False
+        assert client._waiting_for_hello is False
         assert client._server_session_id == 123
-        assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.HELLO
+        assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
 
@@ -116,10 +115,9 @@ class TestHelloExchange:
 
         assert client._seq == 2
         assert client._timestamp != -1
-        assert client._waiting_hello is False
+        assert client._waiting_for_hello is False
         assert client._server_session_id == 123
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -134,7 +132,7 @@ class TestHelloExchange:
 
         assert client._seq == 2
         assert client._timestamp != -1
-        assert client._waiting_hello is False
+        assert client._waiting_for_hello is False
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is False
@@ -154,10 +152,9 @@ class TestHelloExchange:
 
         assert client._seq == 2
         assert client._timestamp != -1
-        assert client._waiting_hello is False
+        assert client._waiting_for_hello is False
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -175,10 +172,9 @@ class TestHelloExchange:
 
         assert client._seq == 2
         assert client._timestamp != -1
-        assert client._waiting_hello is False
+        assert client._waiting_for_hello is False
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -196,7 +192,7 @@ class TestHelloExchange:
 
         assert client._seq == 2
         assert client._timestamp != -1
-        assert client._waiting_hello is False
+        assert client._waiting_for_hello is False
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is False
@@ -216,12 +212,29 @@ class TestHelloExchange:
 
         assert client._seq == 2
         assert client._timestamp != -1
-        assert client._waiting_hello is False
+        assert client._waiting_for_hello is False
         assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
+
+    def test_stdin(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        if not client.is_waiting_for_hello():
+            client.send_data("test")
+        else:
+            packet = util.pack(Command.HELLO.value, 0, 123)
+            client.handle_packet(packet, client._server_address)
+
+        assert client._seq == 1
+        assert client._timestamp == -1
+        assert client._waiting_for_hello is False
+        assert client._server_session_id == 123
+        assert client._signal_queue.qsize() == 0
+        assert client._can_send_data is True
+        assert client._can_send_goodbye is True
 
 
 class TestReady:
@@ -250,7 +263,6 @@ class TestReady:
         assert client._seq == 1
         assert client._timestamp == -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -263,7 +275,6 @@ class TestReady:
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -301,7 +312,6 @@ class TestReady:
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -315,7 +325,6 @@ class TestReady:
         assert client._seq == 3
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -342,7 +351,6 @@ class TestReady:
         assert client._seq == 3
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
@@ -384,7 +392,6 @@ class TestClosing:
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
 
     def test_receive_random(self):
         client = make_client("closing")
@@ -395,7 +402,6 @@ class TestClosing:
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
 
     def test_timeout(self):
         client = make_client("closing")
@@ -406,7 +412,6 @@ class TestClosing:
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
 
     def test_receive_goodbye_bad_session_id(self):
         client = make_client("closing")
@@ -417,7 +422,6 @@ class TestClosing:
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._signal_queue.qsize() == 1
-        assert client._signal_queue.get() == Signal.CLOSE
 
 
 class TestClosed:

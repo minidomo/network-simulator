@@ -35,6 +35,7 @@ const DECIMAL_ROUND_OFF = 4;
 
     sessionIds.forEach(id => {
         const lines = data.filter(line => line.startsWith(id));
+        let lostCount = 0;
 
         if (lines.length != FILE_LINES + 3) {
             /** @type {Set<number>} */
@@ -64,6 +65,7 @@ const DECIMAL_ROUND_OFF = 4;
             while (copyMissingSeqSet.has(i)) {
                 copyMissingSeqSet.delete(i);
                 i--;
+                lostCount++;
             }
 
             if (copyMissingSeqSet.size > 0) {
@@ -74,7 +76,7 @@ const DECIMAL_ROUND_OFF = 4;
             }
         }
 
-        const lostCount = lines.filter(line => line.match(/Lost packet!$/i)).length;
+        lostCount += lines.filter(line => line.match(/Lost packet!$/i)).length;
         const lossRate = lostCount / FILE_LINES * 100;
         console.log(`${id} loss rate (%): ${lossRate.toFixed(DECIMAL_ROUND_OFF)} (${lostCount} / ${FILE_LINES})`);
 

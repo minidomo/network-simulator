@@ -22,8 +22,3 @@ class Response(Enum):
     NORMAL = 0
     IGNORE = 1
     CLOSE = 2
-
-
-class Signal(Enum):
-    HELLO = 0
-    CLOSE = 1

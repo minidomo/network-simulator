@@ -41,7 +41,7 @@ const config = {
 };
 
 (async () => {
-    let hostName, portNum, maxDelay = 0, clientNum;
+    let hostName, portNum, maxDelay = 0, clientNum, type = process.argv.some(val => val === '-e')
     if (process.argv.length > 4) {
         hostName = process.argv[2];
         portNum = process.argv[3];
@@ -52,11 +52,15 @@ const config = {
         console.log('Must provide the hostname and port number');
         return;
     }
-    const argsStr = `${hostName} ${portNum} < ${config.inputFile}`;
     for (let i = 0; i < clientNum; i++) {
         const delay = random(0, maxDelay);
         wait(delay).then(() => {
-            const prog = exec(`Thread/client ${argsStr}`);
+            let prog;
+            if (type) {
+                prog = exec(`expect scripts/expect/Dostoyevsky.exp Thread/client ${hostName} ${portNum}`);
+            } else {
+                prog = exec(`Thread/client ${hostName} ${portNum} < ${config.inputFile}`);
+            }
             console.log(`Executing ${i}`);
             time({ label: `${i}`, type: 'set' });
             prog.once('spawn', code => {

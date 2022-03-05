@@ -18,7 +18,8 @@ def handle_timer(client: ThreadClient):
 def handle_keyboard(client: ThreadClient):
     while not client.closed():
         text = sys.stdin.readline()
-        if not client.closed():
+
+        if not client.closed() and not client.is_waiting_for_hello():
             # Terminates server if input is EOF or "q"
             if not text or (text == "q\n" and sys.stdin.isatty()):
                 client.send_goodbye()
@@ -30,8 +31,7 @@ def handle_keyboard(client: ThreadClient):
 def handle_socket(client: ThreadClient):
     while not client.closed():
         packet, remote_addr = client.receive_packet()
-        if not client.closed():
-            client.handle_packet(packet, remote_addr)
+        client.handle_packet(packet, remote_addr)
 
 
 def main():
@@ -46,15 +46,12 @@ def main():
     t2 = Thread(target=handle_timer, args=(client,))
     t2.start()
 
+    t3 = Thread(target=handle_keyboard, args=(client,), daemon=True)
+    t3.start()
+
     client.send_hello()
-    signal = client.wait_for_signal()
 
-    if signal == constants.Signal.HELLO:
-        t3 = Thread(target=handle_keyboard, args=(client,), daemon=True)
-        t3.start()
-
-        client.wait_for_signal()
-
+    client.wait_for_signal()
     client.close()
 
     t1.join()
