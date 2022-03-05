@@ -1,16 +1,16 @@
 """A thread-based client."""
 
 import socket
-import random
 from threading import Lock
 from queue import Queue
 from time import time
+from . import Client
 from ..constants import Command
 from .. import constants
 from .. import util
 
 
-class ThreadClient:
+class ThreadClient(Client):
     """
     Create a thread-based client with a given server address and timeout interval.
     """
@@ -28,30 +28,16 @@ class ThreadClient:
         timeout_interval : float
             The maximum time that can elapse between a timestamp for a timeout.
         """
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._server_port = portnum
-        self._server_hostname = util.get_hostname(hostname)
-        self._server_ip_address = socket.gethostbyname(hostname)
-        self._server_session_id = -1
-        self._session_id = random.randint(0, 2**32)
-        self._seq = 0
+        super().__init__(hostname, portnum, timeout_interval)
         self._signal_queue = Queue()
 
-        self._can_send_goodbye = True
-        self._can_send_data = True
         self._can_send_lock = Lock()
         self._can_send_goodbye_lock = Lock()
-
-        self._waiting_for_hello = True
         self._waiting_for_hello_lock = Lock()
+        self._closed_lock = Lock()
 
         self._timestamp = -1
         self._timestamp_lock = Lock()
-
-        self._closed = False
-        self._closed_lock = Lock()
-
-        self.timeout_interval = timeout_interval
 
     def is_waiting_for_hello(self) -> bool:
         """
@@ -119,6 +105,7 @@ class ThreadClient:
 
         This method will also set a timestamp for when this packet was sent to be used in timed_out().
         """
+        # start timer
         with self._timestamp_lock:
             self._timestamp = time()
 
@@ -139,6 +126,7 @@ class ThreadClient:
             if self._can_send_data:
 
                 with self._timestamp_lock:
+                    # start timer if not set
                     if self._timestamp == -1:
                         self._timestamp = time()
 
@@ -155,6 +143,7 @@ class ThreadClient:
             with self._can_send_goodbye_lock:
                 if self._can_send_goodbye:
 
+                    # start timer
                     with self._timestamp_lock:
                         self._timestamp = time()
 
@@ -255,6 +244,7 @@ class ThreadClient:
                         self._waiting_for_hello = False
                         self._server_session_id = session_id
 
+                        # reset timer
                         with self._timestamp_lock:
                             self._timestamp = -1
 
