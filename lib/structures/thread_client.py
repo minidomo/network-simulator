@@ -29,6 +29,7 @@ class ThreadClient(Client):
             The maximum time that can elapse between a timestamp for a timeout.
         """
         super().__init__(hostname, portnum, timeout_interval)
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._signal_queue = Queue()
 
         self._can_send_lock = Lock()

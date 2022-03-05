@@ -23,7 +23,6 @@ class Client:
         timeout_interval : float
             The maximum time that can elapse between a timestamp for a timeout.
         """
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._server_port = portnum
         self._server_hostname = util.get_hostname(hostname)
         self._server_ip_address = socket.gethostbyname(hostname)
