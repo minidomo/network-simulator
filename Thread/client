@@ -29,9 +29,12 @@ def handle_keyboard(client: ThreadClient):
 
 
 def handle_socket(client: ThreadClient):
-    while not client.closed():
-        packet, remote_addr = client.receive_packet()
-        client.handle_packet(packet, remote_addr)
+    try:
+        while not client.closed():
+            packet, remote_addr = client.receive_packet()
+            client.handle_packet(packet, remote_addr)
+    except:  # pylint: disable=bare-except
+        pass
 
 
 def main():

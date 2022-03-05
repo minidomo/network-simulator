@@ -29,7 +29,9 @@ class ThreadClient:
             The maximum time that can elapse between a timestamp for a timeout.
         """
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._server_address = (socket.gethostbyname(hostname), portnum)
+        self._server_port = portnum
+        self._server_hostname = util.get_hostname(hostname)
+        self._server_ip_address = socket.gethostbyname(hostname)
         self._server_session_id = -1
         self._session_id = random.randint(0, 2**32)
         self._seq = 0
@@ -109,7 +111,7 @@ class ThreadClient:
         """
         encoded_data = util.pack(command, self._seq, self._session_id, data)
         self._seq += 1
-        self._socket.sendto(encoded_data, self._server_address)
+        self._socket.sendto(encoded_data, (self._server_hostname, self._server_port))
 
     def send_hello(self) -> None:
         """
@@ -239,8 +241,8 @@ class ThreadClient:
         """
         if not self.closed():
             # only consider packets from the server and proper size
-            if address[0] != self._server_address[0] or address[1] != self._server_address[1] or len(
-                    packet) < constants.HEADER_SIZE:
+            if (address[0] != self._server_ip_address or address[1] != self._server_port or
+                    len(packet) < constants.HEADER_SIZE):
                 return
 
             magic_num, version, command, _, session_id = util.unpack(packet)

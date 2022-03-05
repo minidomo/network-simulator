@@ -1,6 +1,7 @@
-"""Utility methods for encoding and decoding packets."""
+"""Utility methods for P0P."""
 
 import struct
+from socket import gethostbyaddr
 from . import constants
 
 
@@ -75,3 +76,24 @@ def unpack(data: bytes) -> "tuple[int, int, int, int, int]":
         A tuple containing the magic number, version number, command, sequence number, and session id.
     """
     return struct.unpack(constants.PACKET_FORMAT, data)
+
+
+def get_hostname(address: str) -> str:
+    """
+    Tries to translate the given IPv4 address to a hostname.
+
+    Parameters
+    ----------
+    address : str
+        An IPv4 address.
+    Returns
+    -------
+    str
+        The corresponding IPv4 address or the same argument that was passed in to this function.
+    """
+    ret_address = address
+    try:
+        ret_address, _, _ = gethostbyaddr(address)
+    except:  # pylint: disable=bare-except
+        pass
+    return ret_address
