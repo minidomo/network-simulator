@@ -83,7 +83,7 @@ class ThreadClient(Client):
             self._can_send_data = False
         self._signal_queue.put(None)
 
-    def _send_packet(self, command: int, data: "str|None" = None) -> None:
+    def _send_packet(self, command: int, data: "str|None" = None) -> bytes:
         """
         Sends a packet to the associated server of this client.
 
@@ -96,63 +96,30 @@ class ThreadClient(Client):
         data : str | None
             The string to send with the packet. Default value is None.
         """
-        encoded_data = util.pack(command, self._seq, self._session_id, data)
-        self._seq += 1
-        self._socket.sendto(encoded_data, (self._server_ip_address, self._server_port))
+        packet = super()._send_packet(command, data)
+        self._socket.sendto(packet, (self._server_ip_address, self._server_port))
+        return packet
 
-    def send_hello(self) -> None:
-        """
-        Sends a HELLO packet to the associated server of this client.
-
-        This method will also set a timestamp for when this packet was sent to be used in timed_out().
-        """
-        # start timer
+    def _reset_timer(self) -> None:
         with self._timestamp_lock:
-            self._timestamp = time()
+            if self._timer_active:
+                self._timestamp = -1
+            super()._reset_timer()
 
-        self._send_packet(Command.HELLO.value)
+    def _start_timer(self) -> None:
+        with self._timestamp_lock:
+            if self._timestamp == -1:
+                self._timestamp = time()
+                super()._start_timer()
 
     def send_data(self, text: str) -> None:
-        """
-        Sends a DATA packet to the associated server of this client.
-
-        This method will also set a timestamp for when this packet was sent to be used in timed_out().
-
-        Parameters
-        ----------
-        text : str
-            The string to send with the packet.
-        """
         with self._can_send_lock:
-            if self._can_send_data:
-
-                with self._timestamp_lock:
-                    # start timer if not set
-                    if self._timestamp == -1:
-                        self._timestamp = time()
-
-                self._send_packet(Command.DATA.value, text)
+            super().send_data(text)
 
     def send_goodbye(self) -> None:
-        """
-        Sends a GOODBYE packet to the associated server of this client.
-
-        This method will also set a timestamp for when this packet was sent to be used in timed_out().
-        In addition, this will prevent the client from sending goodbye and data packets to the server.
-        """
         with self._can_send_lock:
             with self._can_send_goodbye_lock:
-                if self._can_send_goodbye:
-
-                    # start timer
-                    with self._timestamp_lock:
-                        self._timestamp = time()
-
-                    # prevent the client from sending goodbye and data packets
-                    self._can_send_goodbye = False
-                    self._can_send_data = False
-
-                    self._send_packet(Command.GOODBYE.value)
+                super().send_goodbye()
 
     def receive_packet(self) -> "tuple[bytes,tuple[str,int]]":
         """
@@ -176,8 +143,7 @@ class ThreadClient(Client):
         with self._closed_lock:
             self._closed = True
 
-        with self._timestamp_lock:
-            self._timestamp = -1
+        self._reset_timer()
 
         try:
             # this will unblock calls to socket.recvfrom
@@ -223,69 +189,10 @@ class ThreadClient(Client):
                     self.signal_close()
             return timeout
 
-    def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> None:  # pylint: disable=unused-argument
-        """
-        Attempt to process the given packet.
+    def hello_exchange(self, command) -> bool:
+        with self._waiting_for_hello_lock:
+            return super().hello_exchange(command)
 
-        If the client is not closed, the client will process the packet with respect to the client's current state.
-
-        Parameters
-        ----------
-        packet : bytes
-            The packet to process.
-        address : tuple[str,int]
-            The address from where this packet originated.
-        """
-        if not self.closed():
-            # only consider packets from the server and proper size
-            if (address[0] != self._server_ip_address or address[1] != self._server_port or
-                    len(packet) < constants.HEADER_SIZE):
-                return
-
-            magic_num, version, command, _, session_id = util.unpack(packet)
-
-            # checks if the session id matches with the session id from the hello exchange
-            # if not equal, assume server has become crazy
-            if self._session_id != session_id:
-                print(f"different session id: {self._session_id} != {session_id}")
-                self.send_goodbye()
-                self.signal_close()
-                return
-
-            if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
-
-                # enters this only once for the hello exchange
-                with self._waiting_for_hello_lock:
-                    if self._waiting_for_hello:
-                        self._waiting_for_hello = False
-
-                        # reset timer
-                        with self._timestamp_lock:
-                            self._timestamp = -1
-
-                        if command != Command.HELLO.value:
-                            print(f"expected hello, received {command}")
-                            self.send_goodbye()
-                            self.signal_close()
-                        return
-
-                # always close when receiving a goodbye from the client
-                if command == Command.GOODBYE.value:
-                    print("GOODBYE from server.")
-                    self.signal_close()
-                    return
-
-                # in all scenarios except for hello exchange, receiving alive is ok
-                if command == Command.ALIVE.value:
-                    with self._can_send_goodbye_lock:
-                        with self._timestamp_lock:
-                            # only reset timestamp for alive when client is not in closing state
-                            # if _can_send_goodbye is False, client is in closing state
-                            if self._timestamp != -1 and self._can_send_goodbye:
-                                self._timestamp = -1
-                    return
-
-                # assume server has gone crazy
-                print(f"Invalid command: {command}")
-                self.send_goodbye()
-                self.signal_close()
+    def handle_alive(self) -> None:
+        with self._can_send_goodbye_lock:
+            return super().handle_alive()
