@@ -50,7 +50,7 @@ class ThreadClient(Client):
             True if the client is waiting for hello, False otherwise
         """
         with self._waiting_for_hello_lock:
-            return self._waiting_for_hello
+            return super().is_waiting_for_hello()
 
     def closed(self) -> bool:
         """
@@ -62,7 +62,7 @@ class ThreadClient(Client):
             True if the client is closed, False otherwise
         """
         with self._closed_lock:
-            return self._closed
+            return super().closed()
 
     def wait_for_signal(self) -> None:
         """
@@ -98,7 +98,7 @@ class ThreadClient(Client):
         """
         encoded_data = util.pack(command, self._seq, self._session_id, data)
         self._seq += 1
-        self._socket.sendto(encoded_data, (self._server_hostname, self._server_port))
+        self._socket.sendto(encoded_data, (self._server_ip_address, self._server_port))
 
     def send_hello(self) -> None:
         """
@@ -175,6 +175,9 @@ class ThreadClient(Client):
         """
         with self._closed_lock:
             self._closed = True
+
+        with self._timestamp_lock:
+            self._timestamp = -1
 
         try:
             # this will unblock calls to socket.recvfrom

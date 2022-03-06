@@ -1,6 +1,6 @@
 # pylint: disable=protected-access
 # pylint: disable=bare-except
-"""Tests for client functionality."""
+"""Tests for thread-based client functionality."""
 
 import time
 import random

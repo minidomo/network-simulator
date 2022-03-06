@@ -3,125 +3,49 @@
 
 import setup_path  # pylint: disable=unused-import
 import sys
-import random
 import pyuv
-from lib.constants import Command
 from lib import constants
-from lib import util
+from lib import EventClient
 
-_session_id = random.randint(0, 2**32)
-_seq = 0
 _loop = None
-_socket = None
-_timer = None
-_keyboard = None
-_server_address: "tuple[str,int]" = None
-_server_session_id: int = None
-_timer_active: bool = False
+_client = None
 
 
-def send_packet(command: int, data: str = None):
-    global _seq
+def handle_keyboard(handle, data: "bytes|None", error) -> None:  # pylint: disable=unused-argument
 
-    data_msg = util.pack(command, _seq, _session_id, data)
-    _socket.send(_server_address, data_msg)
-    _seq += 1
+    if _client is not None and not _client.closed() and not _client.is_waiting_for_hello():
+        text = None if data is None else data.decode("utf-8", "replace")
+        # Terminates server if input is EOF or "q"
+        if not text or (text == "q\n" and sys.stdin.isatty()):
+            _client.send_goodbye()
+        else:
+            _client.send_data(text)
 
 
-def force_close():
-    _socket.stop_recv()
-    _timer.stop()
+def end_loop() -> None:
+
+    def empty_event():
+        return
+
+    end_loop_async = pyuv.Async(_loop, empty_event)
+
     _loop.stop()
-
-
-def close_client(send: bool):
-    if _keyboard is not None:
-        _keyboard.stop_read()
-    if send:
-        _timer.start(force_close, constants.TIMEOUT_INTERVAL, 0)
-        send_packet(Command.GOODBYE.value)
-    else:
-        force_close()
-
-
-def handle_timer(handle):  #might be wrong
-    global _timer_active
-
-    close_client(False)
-    _timer_active = False
-    _timer.stop()
-
-
-def handle_keyboard(handle, data: "bytes|None", error):
-    global _timer_active
-
-    # Terminates server if input is EOF or "q"
-    line = None if data is None else data.decode("utf-8", "replace")
-    if not line or (line == "q\n" and sys.stdin.isatty()):
-        close_client(True)
-    else:
-        if not _timer_active:
-            _timer_active = True
-            _timer.start(handle_timer, constants.TIMEOUT_INTERVAL, 0)
-        send_packet(Command.DATA.value, line)
-
-
-def handle_socket(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error):
-    global _timer_active
-
-    magic_num, version, command, _, session_id = util.unpack(packet)
-
-    if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
-        if session_id != _server_session_id:
-            close_client(True)
-        else:
-            if command == Command.GOODBYE.value:
-                print("GOODBYE from server.")
-                close_client(False)
-            elif command == Command.ALIVE.value:
-                _timer_active = False
-                _timer.stop()
-            else:
-                print(f"Invalid command: {command}")
-                close_client(True)
-
-
-def hello_exchange(handle, ip_port: "tuple[str,int]", flags, packet: bytes, error):
-    global _keyboard
-    global _server_session_id
-
-    magic_num, version, command, _, session_id = util.unpack(packet)
-    if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
-        if command == Command.HELLO.value:
-            _server_session_id = session_id
-
-            _socket.stop_recv()
-            _socket.start_recv(handle_socket)
-
-            _keyboard = pyuv.TTY(_loop, sys.stdin.fileno(), True)
-            _keyboard.start_read(handle_keyboard)
-
-            _timer.stop()
-        else:
-            close_client(True)
+    end_loop_async.send()
 
 
 def main():
-    global _server_address, _socket, _timer, _loop
+    global _client, _loop
 
     hostname = sys.argv[1]
     portnum = int(sys.argv[2])
-    _server_address = (hostname, portnum)
 
     _loop = pyuv.Loop.default_loop()
 
-    _socket = pyuv.UDP(_loop)
-    _socket.start_recv(hello_exchange)
+    keyboard = pyuv.TTY(_loop, sys.stdin.fileno(), True)
+    keyboard.start_read(handle_keyboard)
 
-    _timer = pyuv.Timer(_loop)
-    _timer.start(handle_timer, constants.TIMEOUT_INTERVAL, 0)
-
-    send_packet(Command.HELLO.value)
+    _client = EventClient(hostname, portnum, constants.TIMEOUT_INTERVAL, _loop, end_loop)
+    _client.send_hello()
 
     _loop.run()
 

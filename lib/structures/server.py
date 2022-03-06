@@ -68,7 +68,9 @@ class Server:
 
     def _determine_response(self, packet: bytes, address: "tuple[str,int]") -> Response:
         """
-        Determines the response for the server to take given a packet and address.
+        Determines the action the server will take given a packet and address.
+
+        Also checks the packet number and prints "Duplicate Packet!" or "Lost Packet!" if needed.
 
         Parameters
         ----------
@@ -81,6 +83,7 @@ class Server:
         -------
         Response
             The server's response to the packet and address.
+            Normally interpreted as the action the server will take for this packet and address.
         """
         # not a P0P packet
         if len(packet) < constants.HEADER_SIZE:
@@ -94,9 +97,8 @@ class Server:
             return Response.IGNORE
 
         with self._map_lock:
-            client = self._client_data_map.get(session_id, None)
-            if client is None:
-                # if seq == 0 and command == Command.HELLO.value
+            client = self._client_data_map.get(session_id, None) # check that we have a session for this client
+            if client is None: # Client's first message
                 if seq == 0:
                     if command == Command.HELLO.value:
                         return Response.NORMAL
@@ -109,8 +111,8 @@ class Server:
                 if address[0] != client.address[0] or address[1] != client.address[1]:
                     return Response.IGNORE
 
-                if seq == client.prev_packet_num:
-                    # duplicate packet
+                if seq == client.prev_packet_num: # duplicate packet
+                    # Makes sure the packet was identical to the last packet ignoring the data
                     values = (Command.HELLO.value, Command.DATA.value, Command.GOODBYE.value)
                     if (command in values and command == client.prev_command_num):
                         self._client_log(session_id, "Duplicate packet!", seq)
@@ -121,7 +123,7 @@ class Server:
                     # out of order delivery (could also be wrap around but will not be tested on it)
                     return Response.CLOSE
                 else:
-                    if seq > client.prev_packet_num + 1:
+                    if seq > client.prev_packet_num + 1: # Lost packets
                         for i in range(client.prev_packet_num + 1, seq):
                             self._client_log(session_id, "Lost packet!", i)
                     if command == Command.HELLO.value:
@@ -198,6 +200,7 @@ class Server:
                             self._client_close(client, True)
 
                 else:
+                    # Should never be reached because _determine_response() should not return Response.NORMAL
                     raise Exception("Unknown command")
 
             elif response == Response.CLOSE:
@@ -213,13 +216,14 @@ class Server:
             elif response == Response.IGNORE:
                 pass
             else:
+                # Never reached unless _determine_response() is changed
                 raise Exception("Unknown response")
 
         return ret_command
 
     def _client_log(self, session_id: int, s: str, seq: "int|None" = None) -> None:
         """
-        Logs client data to the buffered writer.
+        Logs client data to the buffered writer to be printed at a later time.
 
         Parameters
         ----------

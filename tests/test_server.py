@@ -413,3 +413,33 @@ def test_timeout_remove():
     _server.prune_inactive_clients()
 
     assert len(_server._client_data_map) == 0
+
+
+def test_server_close_clients_disconnect():
+    reset_server(_server)
+
+    for i in range(0, 10):
+        client = make_client_data(i, Command.DATA.value)
+        _server._client_data_map[client.session_id] = client
+
+    _server.close()
+
+    assert len(_server._client_data_map) == 0
+
+
+def test_server_duplicate_seq_different_data():
+    reset_server(_server)
+
+    client = make_client_data(1, Command.DATA.value)
+    _server._client_data_map[client.session_id] = client
+
+    packet = util.pack(Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
+    res = _server._determine_response(packet, client.address)
+
+    packet = util.pack(Command.DATA.value, client.prev_packet_num, client.session_id, "something else")
+    res = _server._determine_response(packet, client.address)
+
+    sout: str = _server._bf._queue.get()
+
+    assert res == Response.IGNORE
+    assert sout.endswith("Duplicate packet!")

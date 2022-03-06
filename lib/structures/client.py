@@ -36,3 +36,25 @@ class Client:
         self._closed = False
 
         self.timeout_interval = timeout_interval
+
+    def is_waiting_for_hello(self) -> bool:
+        """
+        Returns True if the client is waiting for hello, False otherwise.
+
+        Returns
+        -------
+        bool
+            True if the client is waiting for hello, False otherwise
+        """
+        return self._waiting_for_hello
+
+    def closed(self) -> bool:
+        """
+        Returns True if the client is closed, False otherwise.
+
+        Returns
+        -------
+        bool
+            True if the client is closed, False otherwise
+        """
+        return self._closed
