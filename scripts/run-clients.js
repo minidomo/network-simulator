@@ -41,37 +41,43 @@ const config = {
 };
 
 (async () => {
-    let hostName, portNum, maxDelay = 0, clientNum;
-    let scriptType = process.argv.some(val => val === '-e');
+    let hostName, portNum, maxDelay = 0, clientNum = 1;
+    let runExpect = process.argv.some(val => val === '-e');
     let clientType = process.argv.some(val => val === '-event') ? 'Event' : 'Thread'
     if (process.argv.length > 4) {
         hostName = process.argv[2];
         portNum = process.argv[3];
-        clientNum = parseInt(process.argv[4]);
+        if (process.argv[4])
+            clientNum = parseInt(process.argv[4]);
         if (process.argv[5])
             maxDelay = parseInt(process.argv[5]);
     } else {
         console.log('Must provide the hostname and port number');
         return;
     }
+
     for (let i = 0; i < clientNum; i++) {
         const delay = random(0, maxDelay);
         wait(delay).then(() => {
             let prog;
-            if (scriptType) {
+            if (runExpect) {
                 prog = exec(`expect scripts/expect/Dostoyevsky.exp ${clientType}/client ${hostName} ${portNum}`);
             } else {
                 prog = exec(`${clientType}/client ${hostName} ${portNum} < ${config.inputFile}`);
             }
+
             console.log(`Executing ${i}`);
             time({ label: `${i}`, type: 'set' });
+
             prog.once('spawn', code => {
                 console.log(`Spawned ${i}`);
             });
+
             prog.once('close', code => {
                 const seconds = time({ label: `${i}`, type: 'get' });
                 console.log(`client ${i} (${code}): ${seconds}`);
             });
+
             prog.once('error', err => {
                 console.log(err);
             });
