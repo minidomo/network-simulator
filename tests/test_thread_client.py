@@ -17,7 +17,6 @@ def make_client(stage: str) -> ThreadClient:
         client._waiting_for_hello = True
     else:
         client._seq = 1
-        client._server_session_id = 0
         client._waiting_for_hello = False
         if stage == "ready":
             pass
@@ -45,13 +44,12 @@ class TestHelloExchange:
 
         client.send_hello()
         if not client.timed_out():
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, ("odfgjhiodfh", client._server_port))
 
         assert client._seq == 1
         assert client._timestamp != -1
         assert client._waiting_for_hello is True
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
@@ -62,13 +60,12 @@ class TestHelloExchange:
         client.send_hello()
         if not client.timed_out():
             packet = util._pack(constants.PACKET_FORMAT, constants.MAGIC_NUMBER + 1, constants.VERSION,
-                                Command.HELLO.value, 0, 123)
+                                Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 1
         assert client._timestamp != -1
         assert client._waiting_for_hello is True
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
@@ -84,7 +81,6 @@ class TestHelloExchange:
         assert client._seq == 1
         assert client._timestamp != -1
         assert client._waiting_for_hello is True
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
@@ -94,13 +90,12 @@ class TestHelloExchange:
 
         client.send_hello()
         if not client.timed_out():
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 1
         assert client._timestamp == -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == 123
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
@@ -110,13 +105,12 @@ class TestHelloExchange:
 
         client.send_hello()
         if not client.timed_out():
-            packet = util.pack(Command.ALIVE.value, 0, 123)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == 123
         assert client._signal_queue.qsize() == 1
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -127,13 +121,12 @@ class TestHelloExchange:
         client.send_hello()
         time.sleep(client.timeout_interval)
         if not client.timed_out():
-            packet = util.pack(Command.ALIVE.value, 0, 123)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -144,16 +137,15 @@ class TestHelloExchange:
         client.send_hello()
         time.sleep(client.timeout_interval)
         if client.timed_out():
-            packet = util.pack(Command.GOODBYE.value, 1, 123)
+            packet = util.pack(Command.GOODBYE.value, 1, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
         else:
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 1
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -164,16 +156,15 @@ class TestHelloExchange:
         client.send_hello()
         time.sleep(client.timeout_interval)
         if client.timed_out():
-            packet = util.pack(Command.HELLO.value, 1, 123)
+            packet = util.pack(Command.HELLO.value, 1, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
         else:
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 1
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -184,16 +175,15 @@ class TestHelloExchange:
         client.send_hello()
         time.sleep(client.timeout_interval)
         if client.timed_out():
-            packet = util.pack(Command.ALIVE.value, 1, 123)
+            packet = util.pack(Command.ALIVE.value, 1, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
         else:
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -207,13 +197,12 @@ class TestHelloExchange:
             time.sleep(client.timeout_interval)
             client.timed_out()
         else:
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._signal_queue.qsize() == 1
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -225,13 +214,12 @@ class TestHelloExchange:
         if not client.is_waiting_for_hello():
             client.send_data("test")
         else:
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 1
         assert client._timestamp == -1
         assert client._waiting_for_hello is False
-        assert client._server_session_id == 123
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
@@ -245,7 +233,7 @@ class TestReady:
     def test_pre_ignore(self):
         client = make_client("ready")
 
-        packet = util.pack(Command.ALIVE.value, 0, client._server_session_id)
+        packet = util.pack(Command.ALIVE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 1
@@ -257,7 +245,7 @@ class TestReady:
     def test_pre_goodbye(self):
         client = make_client("ready")
 
-        packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id)
+        packet = util.pack(Command.GOODBYE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 1
@@ -269,7 +257,7 @@ class TestReady:
     def test_pre_bad(self):
         client = make_client("ready")
 
-        packet = util.pack(Command.DATA.value, 0, client._server_session_id)
+        packet = util.pack(Command.DATA.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -293,7 +281,7 @@ class TestReady:
         client = make_client("ready")
 
         client.send_data("test")
-        packet = util.pack(Command.ALIVE.value, 0, client._server_session_id)
+        packet = util.pack(Command.ALIVE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -306,7 +294,7 @@ class TestReady:
         client = make_client("ready")
 
         client.send_data("test")
-        packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id)
+        packet = util.pack(Command.GOODBYE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -319,7 +307,7 @@ class TestReady:
         client = make_client("ready")
 
         client.send_data("test")
-        packet = util.pack(Command.DEFAULT.value, 0, client._server_session_id)
+        packet = util.pack(Command.DEFAULT.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 3
@@ -345,7 +333,7 @@ class TestReady:
         client = make_client("ready")
 
         client.send_data("test")
-        packet = util.pack(Command.ALIVE.value, 0, client._server_session_id + 1)
+        packet = util.pack(Command.ALIVE.value, 0, client._session_id + 1)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 3
@@ -376,7 +364,7 @@ class TestClosing:
     def test_receive_alive(self):
         client = make_client("closing")
 
-        packet = util.pack(Command.ALIVE.value, 0, client._server_session_id)
+        packet = util.pack(Command.ALIVE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -386,7 +374,7 @@ class TestClosing:
     def test_receive_goodbye(self):
         client = make_client("closing")
 
-        packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id)
+        packet = util.pack(Command.GOODBYE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -396,7 +384,7 @@ class TestClosing:
     def test_receive_random(self):
         client = make_client("closing")
 
-        packet = util.pack(Command.DEFAULT.value, 0, client._server_session_id)
+        packet = util.pack(Command.DEFAULT.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -416,7 +404,7 @@ class TestClosing:
     def test_receive_goodbye_bad_session_id(self):
         client = make_client("closing")
 
-        packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id + 1)
+        packet = util.pack(Command.GOODBYE.value, 0, client._session_id + 1)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -448,7 +436,7 @@ class TestClosed:
     def test_receive_goodbye(self):
         client = make_client("closed")
 
-        packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id)
+        packet = util.pack(Command.GOODBYE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._signal_queue.qsize() == 0
@@ -456,7 +444,7 @@ class TestClosed:
     def test_receive_alive(self):
         client = make_client("closed")
 
-        packet = util.pack(Command.ALIVE.value, 0, client._server_session_id)
+        packet = util.pack(Command.ALIVE.value, 0, client._session_id)
         client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._signal_queue.qsize() == 0

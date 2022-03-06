@@ -129,7 +129,6 @@ class EventClient(Client):
                 # enters this only once for the hello exchange
                 if self._waiting_for_hello:
                     self._waiting_for_hello = False
-                    self._server_session_id = session_id
 
                     # reset timer
                     self._timer.stop()
@@ -143,8 +142,8 @@ class EventClient(Client):
 
                 # checks if the session id matches with the session id from the hello exchange
                 # if not equal, assume server has become crazy
-                if self._server_session_id not in (-1, session_id):
-                    print(f"different session id: {self._server_session_id} != {session_id}")
+                if self._session_id != session_id:
+                    print(f"different session id: {self._session_id} != {session_id}")
                     self.send_goodbye()
                     self.close()
                     return
@@ -175,6 +174,8 @@ class EventClient(Client):
 
         If the server is not closed, the client will check the last timestamp recorded with the current time and see
         if it surpasses the client's timeout interval. Otherwise, None is returned.
+
+        Will send a GOODBYE to the server if the client has not sent one yet, otherwise it closes.
 
         Returns
         -------

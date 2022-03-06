@@ -31,7 +31,6 @@ def make_client(stage: str) -> EventClient:
         client._waiting_for_hello = True
     elif stage in ("ready", "closing"):
         client._seq = 1
-        client._server_session_id = 0
         client._waiting_for_hello = False
         if stage == "closing":
             client._timer_active = True
@@ -53,7 +52,7 @@ class TestHelloExchange:
         def runnable(handle=None):
 
             client.send_hello()
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=("odfgjhiodfh", client._server_port))
 
             end_loop()
@@ -66,7 +65,6 @@ class TestHelloExchange:
         assert client._seq == 1
         assert client._timer_active is True
         assert client._waiting_for_hello is True
-        assert client._server_session_id == -1
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
 
@@ -77,7 +75,7 @@ class TestHelloExchange:
 
             client.send_hello()
             packet = util._pack(constants.PACKET_FORMAT, constants.MAGIC_NUMBER + 1, constants.VERSION,
-                                Command.HELLO.value, 0, 123)
+                                Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -90,7 +88,6 @@ class TestHelloExchange:
         assert client._seq == 1
         assert client._timer_active is True
         assert client._waiting_for_hello is True
-        assert client._server_session_id == -1
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
 
@@ -113,7 +110,6 @@ class TestHelloExchange:
         assert client._seq == 1
         assert client._timer_active is True
         assert client._waiting_for_hello is True
-        assert client._server_session_id == -1
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
 
@@ -123,7 +119,7 @@ class TestHelloExchange:
         def runnable(handle=None):
 
             client.send_hello()
-            packet = util.pack(Command.HELLO.value, 0, 123)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -136,7 +132,6 @@ class TestHelloExchange:
         assert client._seq == 1
         assert client._timer_active is False
         assert client._waiting_for_hello is False
-        assert client._server_session_id == 123
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
 
@@ -146,7 +141,7 @@ class TestHelloExchange:
         def runnable(handle=None):
 
             client.send_hello()
-            packet = util.pack(Command.ALIVE.value, 0, 123)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -159,7 +154,6 @@ class TestHelloExchange:
         assert client._seq == 2
         assert client._timer_active is False
         assert client._waiting_for_hello is False
-        assert client._server_session_id == 123
         assert client._closed is True
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -172,7 +166,7 @@ class TestHelloExchange:
             client.send_hello()
             client.timed_out()
 
-            packet = util.pack(Command.ALIVE.value, 0, 123)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -185,7 +179,6 @@ class TestHelloExchange:
         assert client._seq == 2
         assert client._timer_active is True
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._closed is False
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -199,10 +192,10 @@ class TestHelloExchange:
             client.timed_out()
 
             if not client.is_waiting_for_hello():
-                packet = util.pack(Command.GOODBYE.value, 1, 123)
+                packet = util.pack(Command.GOODBYE.value, 1, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
             else:
-                packet = util.pack(Command.HELLO.value, 0, 123)
+                packet = util.pack(Command.HELLO.value, 0, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -215,7 +208,6 @@ class TestHelloExchange:
         assert client._seq == 2
         assert client._timer_active is False
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._closed is True
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -229,10 +221,10 @@ class TestHelloExchange:
             client.timed_out()
 
             if not client.is_waiting_for_hello():
-                packet = util.pack(Command.HELLO.value, 1, 123)
+                packet = util.pack(Command.HELLO.value, 1, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
             else:
-                packet = util.pack(Command.HELLO.value, 0, 123)
+                packet = util.pack(Command.HELLO.value, 0, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -245,7 +237,6 @@ class TestHelloExchange:
         assert client._seq == 2
         assert client._timer_active is False
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._closed is True
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -259,10 +250,10 @@ class TestHelloExchange:
             client.timed_out()
 
             if not client.is_waiting_for_hello():
-                packet = util.pack(Command.ALIVE.value, 1, 123)
+                packet = util.pack(Command.ALIVE.value, 1, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
             else:
-                packet = util.pack(Command.HELLO.value, 0, 123)
+                packet = util.pack(Command.HELLO.value, 0, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -275,7 +266,6 @@ class TestHelloExchange:
         assert client._seq == 2
         assert client._timer_active is True
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._closed is False
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -291,7 +281,7 @@ class TestHelloExchange:
             if not client.is_waiting_for_hello():
                 client.timed_out()
             else:
-                packet = util.pack(Command.HELLO.value, 0, 123)
+                packet = util.pack(Command.HELLO.value, 0, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -304,7 +294,6 @@ class TestHelloExchange:
         assert client._seq == 2
         assert client._timer_active is False
         assert client._waiting_for_hello is False
-        assert client._server_session_id == -1
         assert client._closed is True
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
@@ -318,7 +307,7 @@ class TestHelloExchange:
             if not client.is_waiting_for_hello():
                 client.send_data("test")
             else:
-                packet = util.pack(Command.HELLO.value, 0, 123)
+                packet = util.pack(Command.HELLO.value, 0, client._session_id)
                 client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -331,7 +320,6 @@ class TestHelloExchange:
         assert client._seq == 1
         assert client._timer_active is False
         assert client._waiting_for_hello is False
-        assert client._server_session_id == 123
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
 
@@ -346,7 +334,7 @@ class TestReady:
 
         def runnable(handle=None):
 
-            packet = util.pack(Command.ALIVE.value, 0, client._server_session_id)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -366,7 +354,7 @@ class TestReady:
 
         def runnable(handle=None):
 
-            packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id)
+            packet = util.pack(Command.GOODBYE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -387,7 +375,7 @@ class TestReady:
 
         def runnable(handle=None):
 
-            packet = util.pack(Command.DATA.value, 0, client._server_session_id)
+            packet = util.pack(Command.DATA.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -428,7 +416,7 @@ class TestReady:
         def runnable(handle=None):
 
             client.send_data("test")
-            packet = util.pack(Command.ALIVE.value, 0, client._server_session_id)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -449,7 +437,7 @@ class TestReady:
         def runnable(handle=None):
 
             client.send_data("test")
-            packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id)
+            packet = util.pack(Command.GOODBYE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -470,7 +458,7 @@ class TestReady:
 
         def runnable(handle=None):
             client.send_data("test")
-            packet = util.pack(Command.DEFAULT.value, 0, client._server_session_id)
+            packet = util.pack(Command.DEFAULT.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -510,7 +498,7 @@ class TestReady:
 
         def runnable(handle=None):
             client.send_data("test")
-            packet = util.pack(Command.ALIVE.value, 0, client._server_session_id + 1)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id + 1)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -555,7 +543,7 @@ class TestClosing:
         client = make_client("closing")
 
         def runnable(handle=None):
-            packet = util.pack(Command.ALIVE.value, 0, client._server_session_id)
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -572,7 +560,7 @@ class TestClosing:
         client = make_client("closing")
 
         def runnable(handle=None):
-            packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id)
+            packet = util.pack(Command.GOODBYE.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -590,7 +578,7 @@ class TestClosing:
         client = make_client("closing")
 
         def runnable(handle=None):
-            packet = util.pack(Command.DEFAULT.value, 0, client._server_session_id)
+            packet = util.pack(Command.DEFAULT.value, 0, client._session_id)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()
@@ -625,7 +613,7 @@ class TestClosing:
         client = make_client("closing")
 
         def runnable(handle=None):
-            packet = util.pack(Command.GOODBYE.value, 0, client._server_session_id + 1)
+            packet = util.pack(Command.GOODBYE.value, 0, client._session_id + 1)
             client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
 
             end_loop()

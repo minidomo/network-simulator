@@ -26,7 +26,7 @@ class Client:
         self._server_port = portnum
         self._server_hostname = util.get_hostname(hostname)
         self._server_ip_address = socket.gethostbyname(hostname)
-        self._server_session_id = -1
+        # self._server_session_id = -1
         self._session_id = random.randint(0, 2**32)
         self._seq = 0
 
