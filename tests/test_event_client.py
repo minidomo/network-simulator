@@ -158,6 +158,27 @@ class TestHelloExchange:
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
+    def test_hello_wrong_session_id(self):
+        client = make_client("hello")
+
+        def runnable(handle=None):
+
+            client.send_hello()
+            packet = util.pack(Command.HELLO.value, 0, client._session_id + 5)
+            client.handle_packet(packet=packet, address=(client._server_ip_address, client._server_port))
+
+            end_loop()
+
+        f = pyuv.Async(_loop, runnable)
+        f.send()
+
+        _loop.run()
+
+        assert client._seq == 2
+        assert client._closed is True
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
     def test_one_timeout(self):
         client = make_client("hello")
 

@@ -126,6 +126,14 @@ class EventClient(Client):
 
             if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
 
+                # checks if the session id matches with the session id from the hello exchange
+                # if not equal, assume server has become crazy
+                if self._session_id != session_id:
+                    print(f"different session id: {self._session_id} != {session_id}")
+                    self.send_goodbye()
+                    self.close()
+                    return
+
                 # enters this only once for the hello exchange
                 if self._waiting_for_hello:
                     self._waiting_for_hello = False
@@ -138,14 +146,6 @@ class EventClient(Client):
                         print(f"expected hello, received {command}")
                         self.send_goodbye()
                         self.close()
-                    return
-
-                # checks if the session id matches with the session id from the hello exchange
-                # if not equal, assume server has become crazy
-                if self._session_id != session_id:
-                    print(f"different session id: {self._session_id} != {session_id}")
-                    self.send_goodbye()
-                    self.close()
                     return
 
                 # always close when receiving a goodbye from the client

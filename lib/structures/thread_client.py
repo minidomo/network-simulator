@@ -244,13 +244,20 @@ class ThreadClient(Client):
 
             magic_num, version, command, _, session_id = util.unpack(packet)
 
+            # checks if the session id matches with the session id from the hello exchange
+            # if not equal, assume server has become crazy
+            if self._session_id != session_id:
+                print(f"different session id: {self._session_id} != {session_id}")
+                self.send_goodbye()
+                self.signal_close()
+                return
+
             if magic_num == constants.MAGIC_NUMBER and version == constants.VERSION:
 
                 # enters this only once for the hello exchange
                 with self._waiting_for_hello_lock:
                     if self._waiting_for_hello:
                         self._waiting_for_hello = False
-                        # self._server_session_id = session_id
 
                         # reset timer
                         with self._timestamp_lock:
@@ -261,14 +268,6 @@ class ThreadClient(Client):
                             self.send_goodbye()
                             self.signal_close()
                         return
-
-                # checks if the session id matches with the session id from the hello exchange
-                # if not equal, assume server has become crazy
-                if self._session_id != session_id:
-                    print(f"different session id: {self._session_id} != {session_id}")
-                    self.send_goodbye()
-                    self.signal_close()
-                    return
 
                 # always close when receiving a goodbye from the client
                 if command == Command.GOODBYE.value:

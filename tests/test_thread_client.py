@@ -115,6 +115,20 @@ class TestHelloExchange:
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
+    def test_hello_wrong_session_id(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        if not client.timed_out():
+            packet = util.pack(Command.ALIVE.value, 0, client._session_id + 5)
+            client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._signal_queue.qsize() == 1
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
     def test_one_timeout(self):
         client = make_client("hello")
 
