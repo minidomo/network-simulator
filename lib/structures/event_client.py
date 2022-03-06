@@ -115,3 +115,11 @@ class EventClient(Client):
         self._timer_active = False
 
         self._close_cb()
+
+    def handle_packet(self,
+                        handle=None,
+                        address: "tuple[str,int]" = None,
+                        flags=None,
+                        packet: bytes = None,
+                        error=None) -> None:
+        super().handle_packet(packet, address)
