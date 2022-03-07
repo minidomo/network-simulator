@@ -482,7 +482,7 @@ def test_server_duplicate_seq_different_data():
 def test_close_race():
     global _server
 
-    stress = 100
+    stress = 10
 
     for i in range(0, stress):
         _server = make_server()
