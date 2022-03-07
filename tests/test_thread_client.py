@@ -120,7 +120,7 @@ class TestHelloExchange:
 
         client.send_hello()
         if not client.timed_out():
-            packet = util.pack(Command.ALIVE.value, 0, client._session_id + 5)
+            packet = util.pack(Command.HELLO.value, 0, client._session_id + 5)
             client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
@@ -134,9 +134,8 @@ class TestHelloExchange:
 
         client.send_hello()
         time.sleep(client.timeout_interval)
-        if not client.timed_out():
-            packet = util.pack(Command.ALIVE.value, 0, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        assert client.timed_out()
 
         assert client._seq == 2
         assert client._timestamp != -1
@@ -150,12 +149,13 @@ class TestHelloExchange:
 
         client.send_hello()
         time.sleep(client.timeout_interval)
-        if client.timed_out():
-            packet = util.pack(Command.GOODBYE.value, 1, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
-        else:
-            packet = util.pack(Command.HELLO.value, 0, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        assert client.timed_out()
+
+        packet = util.pack(Command.GOODBYE.value, 1, client._session_id)
+        client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        assert client.timed_out() is False
 
         assert client._seq == 2
         assert client._timestamp != -1
@@ -169,12 +169,11 @@ class TestHelloExchange:
 
         client.send_hello()
         time.sleep(client.timeout_interval)
-        if client.timed_out():
-            packet = util.pack(Command.HELLO.value, 1, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
-        else:
-            packet = util.pack(Command.HELLO.value, 0, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        assert client.timed_out()
+
+        packet = util.pack(Command.HELLO.value, 1, client._session_id)
+        client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
@@ -188,12 +187,11 @@ class TestHelloExchange:
 
         client.send_hello()
         time.sleep(client.timeout_interval)
-        if client.timed_out():
-            packet = util.pack(Command.ALIVE.value, 1, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
-        else:
-            packet = util.pack(Command.HELLO.value, 0, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        assert client.timed_out()
+
+        packet = util.pack(Command.ALIVE.value, 1, client._session_id)
+        client.handle_packet(packet, (client._server_ip_address, client._server_port))
 
         assert client._seq == 2
         assert client._timestamp != -1
@@ -202,17 +200,44 @@ class TestHelloExchange:
         assert client._can_send_data is False
         assert client._can_send_goodbye is False
 
+    def test_one_timeout_reset_timer(self):
+        client = make_client("hello")
+
+        client.send_hello()
+        time.sleep(client.timeout_interval)
+
+        assert client.timed_out()
+
+        packet = util.pack(Command.ALIVE.value, 1, client._session_id)
+        client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        time.sleep(2)
+
+        packet = util.pack(Command.ALIVE.value, 1, client._session_id)
+        client.handle_packet(packet, (client._server_ip_address, client._server_port))
+
+        time.sleep(4)
+
+        assert client.timed_out()
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_for_hello is False
+        assert client._signal_queue.qsize() == 1
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
+
     def test_two_timeout(self):
         client = make_client("hello")
 
         client.send_hello()
         time.sleep(client.timeout_interval)
-        if client.timed_out():
-            time.sleep(client.timeout_interval)
-            client.timed_out()
-        else:
-            packet = util.pack(Command.HELLO.value, 0, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
+        
+        assert client.timed_out()
+
+        time.sleep(client.timeout_interval)
+
+        assert client.timed_out()
 
         assert client._seq == 2
         assert client._timestamp != -1
@@ -225,18 +250,30 @@ class TestHelloExchange:
         client = make_client("hello")
 
         client.send_hello()
-        if not client.is_waiting_for_hello():
-            client.send_data("test")
-        else:
-            packet = util.pack(Command.HELLO.value, 0, client._session_id)
-            client.handle_packet(packet, (client._server_ip_address, client._server_port))
+        
+        timestamp = client._timestamp
+
+        client.send_data("test")
 
         assert client._seq == 1
-        assert client._timestamp == -1
-        assert client._waiting_for_hello is False
+        assert client._timestamp == timestamp
+        assert client._waiting_for_hello is True
         assert client._signal_queue.qsize() == 0
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
+
+    def test_stdin_q(self):
+        client = make_client("hello")
+
+        client.send_hello()
+
+        client.send_goodbye()
+
+        assert client._seq == 2
+        assert client._timestamp != -1
+        assert client._waiting_for_hello is True
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
 
 class TestReady:

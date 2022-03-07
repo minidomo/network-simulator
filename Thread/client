@@ -19,10 +19,13 @@ def handle_keyboard(client: ThreadClient):
     while not client.closed():
         text = sys.stdin.readline()
 
-        if not client.closed() and not client.is_waiting_for_hello():
+        if not client.closed():
             # Terminates server if input is EOF or "q"
             if not text or (text == "q\n" and sys.stdin.isatty()):
-                client.send_goodbye()
+                # Rather than signal a close, we send a goodbye
+                # in order to enter the closing state instead of the
+                # closed state
+                client.send_goodbye() 
                 break
             else:
                 client.send_data(text)

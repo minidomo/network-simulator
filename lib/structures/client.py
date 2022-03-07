@@ -117,7 +117,7 @@ class Client:
         text : str
             The string to send with the packet.
         """
-        if self._can_send_data:
+        if self._can_send_data and not self.is_waiting_for_hello():
             # start timer if not set
             
             self._start_timer()
