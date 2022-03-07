@@ -24,10 +24,10 @@ class EventClient(Client):
             The port number of the server to contact.
         timeout_interval : float
             The maximum time that can elapse between a timestamp for a timeout.
-        loop
+        loop : pyuv.Loop
             The pyuv event loop.
         close_cb : Callable[[],None]
-            The function to be called when the client closes.
+            The callback function to be called when the client closes.
         """
         super().__init__(hostname, portnum, timeout_interval)
 
@@ -53,42 +53,10 @@ class EventClient(Client):
     def _send(self, data: bytes) -> None:
         self._socket.send((self._server_ip_address, self._server_port), data)
 
-    def timed_out(self, handle=None) -> None:
-        """
-        Attempt to check if the client has timed out.
-
-        If the server is not closed, the client will check the last timestamp recorded with the current time and see
-        if it surpasses the client's timeout interval. Otherwise, None is returned.
-
-        Will send a GOODBYE to the server if the client has not sent one yet, otherwise it closes.
-
-        Returns
-        -------
-        bool | None
-            Returns None is the client is closed. Returns True if the duration of last timestamp recorded exceeds
-            the client's timeout interval.
-        """
-        if not self.closed():
-            print("timed out")
-            # anytime we timeout, we're definitely not waiting for hello anymore
-            self._waiting_for_hello = False
-
-            goodbye = self._can_send_goodbye
-
-            if goodbye:
-                self.send_goodbye()
-            else:
-                self.close()
-
     def signal_close(self) -> None:
         self.close()
 
     def close(self) -> None:
-        """
-        Closes the client's socket.
-
-        Also prevents calls to timed_out() and handle_packet() from processing timeouts and packets, respectively.
-        """
         self._can_send_goodbye = False
         self._can_send_data = False
         self._closed = True
@@ -105,3 +73,22 @@ class EventClient(Client):
                       packet: bytes = None,
                       error=None) -> None:
         super().handle_packet(packet, address)
+
+    def timed_out(self, handle=None) -> None:
+        """
+        Processes the event where a timeout has occurred.
+
+        If a GOODBYE packet has not been sent to the server, a GOODBYE packet will be sent to the server. Otherwise
+        the client will close.
+        """
+        if not self.closed():
+            print("timed out")
+            # anytime we timeout, we're definitely not waiting for hello anymore
+            self._waiting_for_hello = False
+
+            goodbye = self._can_send_goodbye
+
+            if goodbye:
+                self.send_goodbye()
+            else:
+                self.close()

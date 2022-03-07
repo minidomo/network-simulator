@@ -42,22 +42,41 @@ class Client(ABC):
 
     @abstractmethod
     def _try_stop_timer(self) -> None:
+        """
+        Attempts to stop the timer if currently running.
+        """
         pass
 
     @abstractmethod
     def _try_start_timer(self) -> None:
+        """
+        Attempts to start the timer if not currently running.
+        """
         pass
 
     @abstractmethod
     def _send(self, data: bytes) -> None:
+        """
+        Sends the given data to the server.
+        """
         pass
 
     @abstractmethod
     def signal_close(self) -> None:
+        """
+        Will try to close the client and send a closing signal if necessary.
+
+        Calling this method will prevent the client from sending goodbye and data packets to the server.
+        """
         pass
 
     @abstractmethod
     def close(self) -> None:
+        """
+        Closes the client's socket.
+
+        Also prevents calls to timed_out() and handle_packet() from processing timeouts and packets, respectively.
+        """
         pass
 
     def is_waiting_for_hello(self) -> bool:
@@ -84,7 +103,7 @@ class Client(ABC):
 
     def _send_packet(self, command: int, data: "str|None" = None) -> None:
         """
-        Sends a packet to the associated server of this client.
+        Creates and sends a packet to the associated server of this client.
 
         This method will also increment the client's sequence number by one.
 
@@ -94,11 +113,6 @@ class Client(ABC):
             The command integer value.
         data : str | None
             The string to send with the packet. Default value is None.
-
-        Returns
-        -------
-        bytes
-            The packet that was created
         """
         encoded_data = util.pack(command, self._seq, self._session_id, data)
         self._seq += 1
@@ -108,7 +122,7 @@ class Client(ABC):
         """
         Sends a HELLO packet to the associated server of this client.
 
-        This method will also set a timestamp for when this packet was sent to be used in timed_out().
+        This method will also start the timer.
         """
         # start timer
         self._try_start_timer()
@@ -118,7 +132,7 @@ class Client(ABC):
         """
         Sends a DATA packet to the associated server of this client.
 
-        This method will also set a timestamp for when this packet was sent to be used in timed_out().
+        This method will also start the timer if not already started.
 
         Parameters
         ----------
@@ -135,8 +149,8 @@ class Client(ABC):
         """
         Sends a GOODBYE packet to the associated server of this client.
 
-        This method will also set a timestamp for when this packet was sent to be used in timed_out().
-        In addition, this will prevent the client from sending goodbye and data packets to the server.
+        This method will also stop and start the timer. In addition, this will prevent the client from sending
+        goodbye and data packets to the server.
         """
         if self._can_send_goodbye:
 
@@ -150,19 +164,19 @@ class Client(ABC):
 
             self._send_packet(Command.GOODBYE.value)
 
-    def hello_exchange(self, command) -> bool:  # TODO name
+    def hello_exchange(self, command) -> bool:
         """
-        This method should only be called once
+        This method should only be called once.
 
         Handles a HELLO packet if we were waiting for a HELLO from the server.
 
         If any other packet was received while we are waiting for a HELLO,
-        a protocol error occured and the client closes
+        a protocol error occured and the client closes.
 
         Returns
         -------
         bool
-            Whether it was waiting for a hello or not
+            True if the client was waiting for a HELLO from the server, False otherwise.
         """
         if self._waiting_for_hello:
             self._waiting_for_hello = False
@@ -179,7 +193,9 @@ class Client(ABC):
 
     def handle_alive(self) -> None:
         """
-        Handle an alive packet
+        Handle an ALIVE packet.
+
+        This method will also stop the timer if currently running.
         """
         # only reset timestamp for alive when client is not in closing state
         # if _can_send_goodbye is False, client is in closing state
