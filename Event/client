@@ -12,7 +12,7 @@ _client = None
 
 
 def handle_keyboard(handle, data: "bytes|None", error) -> None:  # pylint: disable=unused-argument
-    if _client is not None and not _client.closed() and not _client.is_waiting_for_hello():
+    if _client is not None and not _client.closed():
         text = None if data is None else data.decode("utf-8", "replace")
         # Terminates server if input is EOF or "q"
         if not text or (text == "q\n" and sys.stdin.isatty()):
