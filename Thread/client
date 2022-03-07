@@ -25,7 +25,7 @@ def handle_keyboard(client: ThreadClient):
                 # Rather than signal a close, we send a goodbye
                 # in order to enter the closing state instead of the
                 # closed state
-                client.send_goodbye() 
+                client.send_goodbye()
                 break
             else:
                 client.send_data(text)

@@ -233,7 +233,7 @@ class TestHelloExchange:
 
         client.send_hello()
         time.sleep(client.timeout_interval)
-        
+
         assert client.timed_out()
 
         time.sleep(client.timeout_interval)
@@ -251,7 +251,7 @@ class TestHelloExchange:
         client = make_client("hello")
 
         client.send_hello()
-        
+
         timestamp = client._timestamp
 
         client.send_data("test")
