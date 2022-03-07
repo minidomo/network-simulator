@@ -3,10 +3,7 @@
 
 import pyuv
 from typing import Callable  # pylint: disable=unused-import
-from ..constants import Command
 from . import Client
-from .. import constants
-from .. import util
 
 
 class EventClient(Client):
@@ -27,10 +24,10 @@ class EventClient(Client):
             The port number of the server to contact.
         timeout_interval : float
             The maximum time that can elapse between a timestamp for a timeout.
-        loop
+        loop : pyuv.Loop
             The pyuv event loop.
         close_cb : Callable[[],None]
-            The function to be called when the client closes.
+            The callback function to be called when the client closes.
         """
         super().__init__(hostname, portnum, timeout_interval)
 
@@ -42,48 +39,47 @@ class EventClient(Client):
 
         self._close_cb = close_cb
 
-    def _reset_timer(self) -> None:
+    def _try_stop_timer(self) -> None:
         if self._timer_active:
             self._timer.stop()
-        return super()._reset_timer()
+            self._timer_active = False
 
-    def _start_timer(self) -> None:
+    def _try_start_timer(self) -> None:
         if not self._timer_active:
             if self.timeout_interval > 0:
                 self._timer.start(self.timed_out, self.timeout_interval, 0)
-        return super()._start_timer()
+            self._timer_active = True
 
-    def _send_packet(self, command: int, data: "str|None" = None) -> bytes:
-        """
-        Sends a packet to the associated server of this client.
+    def _send(self, data: bytes) -> None:
+        self._socket.send((self._server_ip_address, self._server_port), data)
 
-        This method will also increment the client's sequence number by one.
+    def signal_close(self) -> None:
+        self.close()
 
-        Parameters
-        ----------
-        command : int
-            The command integer value.
-        data : str | None
-            The string to send with the packet. Default value is None.
-        """
-        packet = super()._send_packet(command, data)
-        self._socket.send((self._server_ip_address, self._server_port), packet)
-        return packet
+    def close(self) -> None:
+        self._can_send_goodbye = False
+        self._can_send_data = False
+        self._closed = True
+
+        self._socket.stop_recv()
+        self._try_stop_timer()
+
+        self._close_cb()
+
+    def handle_packet(self,
+                      handle=None,
+                      address: "tuple[str,int]" = None,
+                      flags=None,
+                      packet: bytes = None,
+                      error=None) -> None:
+        super().handle_packet(packet, address)
 
     def timed_out(self, handle=None) -> None:
         """
-        Attempt to check if the client has timed out.
+        Processes the event where a timeout has occurred.
 
-        If the server is not closed, the client will check the last timestamp recorded with the current time and see
-        if it surpasses the client's timeout interval. Otherwise, None is returned.
-
-        Will send a GOODBYE to the server if the client has not sent one yet, otherwise it closes.
-
-        Returns
-        -------
-        bool | None
-            Returns None is the client is closed. Returns True if the duration of last timestamp recorded exceeds
-            the client's timeout interval.
+        If a GOODBYE packet has not been sent to the server, a GOODBYE packet will be sent to the server. Otherwise
+        the client will close.
         """
         if not self.closed():
             print("timed out")
@@ -96,30 +92,3 @@ class EventClient(Client):
                 self.send_goodbye()
             else:
                 self.close()
-
-    def signal_close(self) -> None:
-        self.close()
-
-    def close(self) -> None:
-        """
-        Closes the client's socket.
-
-        Also prevents calls to timed_out() and handle_packet() from processing timeouts and packets, respectively.
-        """
-        self._can_send_goodbye = False
-        self._can_send_data = False
-        self._closed = True
-
-        self._socket.stop_recv()
-        self._timer.stop()
-        self._timer_active = False
-
-        self._close_cb()
-
-    def handle_packet(self,
-                        handle=None,
-                        address: "tuple[str,int]" = None,
-                        flags=None,
-                        packet: bytes = None,
-                        error=None) -> None:
-        super().handle_packet(packet, address)
