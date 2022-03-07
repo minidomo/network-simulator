@@ -36,6 +36,7 @@ class Server:
         self._client_data_map: "dict[int, ClientData]" = {}
         self._map_lock = Lock()
 
+        self._working = False
         self._closed = False
         self._closed_lock = Lock()
 
@@ -156,6 +157,7 @@ class Server:
         ret_command: "Command|None" = None
 
         if not self.closed():
+            self._working = True
             response = self._determine_response(packet, address)
 
             if response == Response.NORMAL:
@@ -219,6 +221,7 @@ class Server:
                 # Never reached unless _determine_response() is changed
                 raise Exception("Unknown response")
 
+            self._working = False
         return ret_command
 
     def _client_log(self, session_id: int, s: str, seq: "int|None" = None) -> None:
@@ -276,6 +279,9 @@ class Server:
         """
         with self._closed_lock:
             self._closed = True
+
+        while self._working: # Let handle_socket finish its work
+            pass
 
         with self._map_lock:
             for client in list(self._client_data_map.values()):

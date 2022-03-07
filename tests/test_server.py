@@ -7,6 +7,7 @@ from lib.constants import Command, Response
 from lib.structures import Server, BufferedWriter, ClientData
 from lib import constants
 from lib import util
+from threading import Thread
 
 
 def make_server() -> Server:
@@ -428,6 +429,7 @@ def test_server_close_clients_disconnect():
 
 
 def test_server_duplicate_seq_different_data():
+    _server = make_server() # was closed in previous test
     reset_server(_server)
 
     client = make_client_data(1, Command.DATA.value)
@@ -441,5 +443,43 @@ def test_server_duplicate_seq_different_data():
 
     sout: str = _server._bf._queue.get()
 
+    _server.close()
+
     assert res == Response.IGNORE
     assert sout.endswith("Duplicate packet!")
+
+def test_close_race():
+    global _server
+
+    stress = 300
+
+    for i in range(0, stress):
+        _server = make_server()
+
+        threads = [0] * stress
+
+        for j in range(0, stress):
+            client = make_client_data(1, Command.DATA.value)
+            _server._client_data_map[client.session_id] = client
+
+            packet = util.pack(Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
+            def process():
+                _server.handle_packet(packet, client.address)
+
+            threads[j] = Thread(target=process)
+
+        def close():
+            _server.close()
+
+        t1 = Thread(target=close)
+
+        for i in range(0, len(threads)):
+            threads[i].start()
+            if i == stress // 2:
+                t1.start()
+
+        while not _server.closed():
+            pass
+                    
+
+    assert True
