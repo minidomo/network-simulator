@@ -36,12 +36,11 @@ class Server:
         self._client_data_map: "dict[int, ClientData]" = {}
         self._map_lock = Lock()
 
-        self._working = False
         self._closed = False
         self._closed_lock = Lock()
 
-        self._done = False
-        
+        self._handle_packet_lock = Lock()
+
         self.timeout_interval = timeout_interval
 
     def closed(self) -> bool:
@@ -100,8 +99,8 @@ class Server:
             return Response.IGNORE
 
         with self._map_lock:
-            client = self._client_data_map.get(session_id, None) # check that we have a session for this client
-            if client is None: # Client's first message
+            client = self._client_data_map.get(session_id, None)  # check that we have a session for this client
+            if client is None:  # Client's first message
                 if seq == 0:
                     if command == Command.HELLO.value:
                         return Response.NORMAL
@@ -114,7 +113,7 @@ class Server:
                 if address[0] != client.address[0] or address[1] != client.address[1]:
                     return Response.IGNORE
 
-                if seq == client.prev_packet_num: # duplicate packet
+                if seq == client.prev_packet_num:  # duplicate packet
                     # Makes sure the packet was identical to the last packet ignoring the data
                     values = (Command.HELLO.value, Command.DATA.value, Command.GOODBYE.value)
                     if (command in values and command == client.prev_command_num):
@@ -126,7 +125,7 @@ class Server:
                     # out of order delivery (could also be wrap around but will not be tested on it)
                     return Response.CLOSE
                 else:
-                    if seq > client.prev_packet_num + 1: # Lost packets
+                    if seq > client.prev_packet_num + 1:  # Lost packets
                         for i in range(client.prev_packet_num + 1, seq):
                             self._client_log(session_id, "Lost packet!", i)
                     if command == Command.HELLO.value:
@@ -156,75 +155,74 @@ class Server:
         Command | None
             The command that was sent back to the given address. None if nothing was sent.
         """
-        ret_command: "Command|None" = None
+        with self._handle_packet_lock:
+            ret_command: "Command|None" = None
 
-        if not self.closed():
-            self._working = True
-            response = self._determine_response(packet, address)
+            if not self.closed():
+                response = self._determine_response(packet, address)
 
-            if response == Response.NORMAL:
-                packet_header = packet[:constants.HEADER_SIZE]
-                _, _, command, seq, session_id = util.unpack(packet_header)
-
-                with self._map_lock:
-                    if session_id in self._client_data_map:
-                        # update the sequence number and command number
-                        client = self._client_data_map[session_id]
-                        client.prev_packet_num = seq
-                        client.prev_command_num = command
-
-                if command == Command.HELLO.value:
-                    ret_command = Command.HELLO
-                    self.send_packet(address, command, session_id)
-                    self._client_log(session_id, "Session created", seq)
-
-                    with self._map_lock:
-                        client = ClientData(session_id, address)
-                        client.timestamp = time()
-                        client.prev_packet_num = seq
-                        client.prev_command_num = command
-                        self._client_data_map[session_id] = client
-
-                elif command == Command.DATA.value:
-                    data = packet[constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
+                if response == Response.NORMAL:
+                    packet_header = packet[:constants.HEADER_SIZE]
+                    _, _, command, seq, session_id = util.unpack(packet_header)
 
                     with self._map_lock:
                         if session_id in self._client_data_map:
-                            ret_command = Command.ALIVE
+                            # update the sequence number and command number
                             client = self._client_data_map[session_id]
-                            self.send_packet(address, Command.ALIVE.value, session_id)
-                            self._client_log(session_id, data, seq)
-                            client.timestamp = time()
+                            client.prev_packet_num = seq
+                            client.prev_command_num = command
 
-                elif command == Command.GOODBYE.value:
+                    if command == Command.HELLO.value:
+                        ret_command = Command.HELLO
+                        self.send_packet(address, command, session_id)
+                        self._client_log(session_id, "Session created", seq)
+
+                        with self._map_lock:
+                            client = ClientData(session_id, address)
+                            client.timestamp = time()
+                            client.prev_packet_num = seq
+                            client.prev_command_num = command
+                            self._client_data_map[session_id] = client
+
+                    elif command == Command.DATA.value:
+                        data = packet[constants.HEADER_SIZE:].decode("utf-8", "replace").rstrip()
+
+                        with self._map_lock:
+                            if session_id in self._client_data_map:
+                                ret_command = Command.ALIVE
+                                client = self._client_data_map[session_id]
+                                self.send_packet(address, Command.ALIVE.value, session_id)
+                                self._client_log(session_id, data, seq)
+                                client.timestamp = time()
+
+                    elif command == Command.GOODBYE.value:
+                        with self._map_lock:
+                            if session_id in self._client_data_map:
+                                ret_command = Command.GOODBYE
+                                client = self._client_data_map[session_id]
+                                self._client_close(client, True)
+
+                    else:
+                        # Should never be reached because _determine_response() should not return Response.NORMAL
+                        raise Exception("Unknown command")
+
+                elif response == Response.CLOSE:
+                    packet_header = packet[:constants.HEADER_SIZE]
+                    _, _, _, _, session_id = util.unpack(packet_header)
+
                     with self._map_lock:
                         if session_id in self._client_data_map:
                             ret_command = Command.GOODBYE
                             client = self._client_data_map[session_id]
-                            self._client_close(client, True)
+                            self._client_close(client, False)
 
+                elif response == Response.IGNORE:
+                    pass
                 else:
-                    # Should never be reached because _determine_response() should not return Response.NORMAL
-                    raise Exception("Unknown command")
+                    # Never reached unless _determine_response() is changed
+                    raise Exception("Unknown response")
 
-            elif response == Response.CLOSE:
-                packet_header = packet[:constants.HEADER_SIZE]
-                _, _, _, _, session_id = util.unpack(packet_header)
-
-                with self._map_lock:
-                    if session_id in self._client_data_map:
-                        ret_command = Command.GOODBYE
-                        client = self._client_data_map[session_id]
-                        self._client_close(client, False)
-
-            elif response == Response.IGNORE:
-                pass
-            else:
-                # Never reached unless _determine_response() is changed
-                raise Exception("Unknown response")
-
-            self._working = False
-        return ret_command
+            return ret_command
 
     def _client_log(self, session_id: int, s: str, seq: "int|None" = None) -> None:
         """
@@ -279,11 +277,9 @@ class Server:
 
         Sends goodbye to all current clients and shutdowns and closes the server's socket.
         """
-        with self._closed_lock:
-            self._closed = True
-
-        while self._working: # Let handle_socket finish its work
-            pass
+        with self._handle_packet_lock:
+            with self._closed_lock:
+                self._closed = True
 
         with self._map_lock:
             for client in list(self._client_data_map.values()):
@@ -293,9 +289,6 @@ class Server:
         except:  # pylint: disable=bare-except
             pass
         self._socket.close()
-
-        self._done = True
-
 
     def receive_packet(self) -> "tuple[bytes,tuple[str,int]]":
         """

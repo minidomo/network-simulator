@@ -11,7 +11,7 @@ from threading import Thread
 
 
 def make_server() -> Server:
-    portnum = 62542
+    portnum = 60642
     bf = BufferedWriter(None, 5000000, "utf-8")
     server = Server(portnum, bf, 1)
 
@@ -20,17 +20,11 @@ def make_server() -> Server:
 
 _server = make_server()
 
-def reset_server(server: Server):
+
+def reset_server():
     global _server
     _server.close()
     _server = make_server()
-
-# def reset_server(server: Server):
-#     server._client_data_map.clear()
-#     queue = server._bf._queue
-#     size = queue.qsize()
-#     for _ in range(size):
-#         queue.get()
 
 
 def make_address(hostname: str = None, portnum: int = None) -> "tuple[str,int]":
@@ -59,7 +53,7 @@ def make_client_data(seq_prev: int, command_prev: int) -> ClientData:
 
 
 def test_response_small_packet():
-    reset_server(_server)
+    reset_server()
     packet = b"sodkf"
     address = make_address()
 
@@ -69,7 +63,7 @@ def test_response_small_packet():
 
 
 def test_response_mismatched_magic():
-    reset_server(_server)
+    reset_server()
     packet = util._pack(constants.PACKET_FORMAT, 234, constants.VERSION, Command.HELLO.value, 0, 0)
     address = make_address()
 
@@ -79,7 +73,7 @@ def test_response_mismatched_magic():
 
 
 def test_response_mismatched_version():
-    reset_server(_server)
+    reset_server()
     packet = util._pack(constants.PACKET_FORMAT, constants.MAGIC_NUMBER, 2, Command.HELLO.value, 0, 0)
     address = make_address()
 
@@ -89,7 +83,7 @@ def test_response_mismatched_version():
 
 
 def test_response_unexpected_packet_seq():
-    reset_server(_server)
+    reset_server()
     packet = util.pack(Command.HELLO.value, 1, 0)
     address = make_address()
 
@@ -99,7 +93,7 @@ def test_response_unexpected_packet_seq():
 
 
 def test_response_unexpected_packet_command():
-    reset_server(_server)
+    reset_server()
     packet = util.pack(Command.DATA.value, 0, 0)
     address = make_address()
 
@@ -109,7 +103,7 @@ def test_response_unexpected_packet_command():
 
 
 def test_response_first_hello():
-    reset_server(_server)
+    reset_server()
     packet = util.pack(Command.HELLO.value, 0, 0)
     address = make_address()
 
@@ -119,7 +113,7 @@ def test_response_first_hello():
 
 
 def test_response_same_sid_different_hostname():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(0, Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
@@ -132,7 +126,7 @@ def test_response_same_sid_different_hostname():
 
 
 def test_response_same_sid_different_address():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(0, Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
@@ -145,7 +139,7 @@ def test_response_same_sid_different_address():
 
 
 def test_response_duplicate_packet_different_command():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(0, Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
@@ -157,7 +151,7 @@ def test_response_duplicate_packet_different_command():
 
 
 def test_response_duplicate_packet_same_command():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(0, Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
@@ -171,7 +165,7 @@ def test_response_duplicate_packet_same_command():
 
 
 def test_response_out_of_order_delivery():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(2, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -183,7 +177,7 @@ def test_response_out_of_order_delivery():
 
 
 def test_response_lost_packets():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -202,7 +196,7 @@ def test_response_lost_packets():
 
 
 def test_response_receive_another_hello():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -214,7 +208,7 @@ def test_response_receive_another_hello():
 
 
 def test_response_receive_alive():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -226,7 +220,7 @@ def test_response_receive_alive():
 
 
 def test_response_receive_goodbye():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -238,7 +232,7 @@ def test_response_receive_goodbye():
 
 
 def test_response_receive_data():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -250,7 +244,7 @@ def test_response_receive_data():
 
 
 def test_response_receive_unknown_command():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -265,7 +259,7 @@ def test_response_receive_unknown_command():
 
 
 def test_handle_first_hello():
-    reset_server(_server)
+    reset_server()
     seq = 0
     session_id = 0
     packet = util.pack(Command.HELLO.value, seq, session_id)
@@ -281,7 +275,7 @@ def test_handle_first_hello():
 
 
 def test_handle_duplicate_packet_different_command():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(0, Command.HELLO.value)
     _server._client_data_map[client.session_id] = client
 
@@ -297,7 +291,7 @@ def test_handle_duplicate_packet_different_command():
 
 
 def test_handle_out_of_order_delivery():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(2, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -313,7 +307,7 @@ def test_handle_out_of_order_delivery():
 
 
 def test_handle_receive_another_hello():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -329,7 +323,7 @@ def test_handle_receive_another_hello():
 
 
 def test_handle_receive_alive():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -345,7 +339,7 @@ def test_handle_receive_alive():
 
 
 def test_handle_receive_goodbye():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -363,7 +357,7 @@ def test_handle_receive_goodbye():
 
 
 def test_handle_receive_data():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -378,7 +372,7 @@ def test_handle_receive_data():
 
 
 def test_handle_receive_unknown_command():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -394,7 +388,7 @@ def test_handle_receive_unknown_command():
 
 
 def test_timeout_no_remove():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -410,7 +404,7 @@ def test_timeout_no_remove():
 
 
 def test_timeout_remove():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -426,8 +420,9 @@ def test_timeout_remove():
     assert len(_server._client_data_map) == 0
     assert sout.endswith("Session Closed")
 
+
 def test_timeout_then_goodbye():
-    reset_server(_server)
+    reset_server()
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
@@ -446,8 +441,9 @@ def test_timeout_then_goodbye():
     assert len(_server._client_data_map) == 0
     assert sout.endswith("Session Closed")
 
+
 def test_server_close_clients_disconnect():
-    reset_server(_server)
+    reset_server()
 
     for i in range(0, 10):
         client = make_client_data(i, Command.DATA.value)
@@ -459,7 +455,7 @@ def test_server_close_clients_disconnect():
 
 
 def test_server_duplicate_seq_different_data():
-    reset_server(_server)
+    reset_server()
 
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
@@ -479,25 +475,24 @@ def test_server_duplicate_seq_different_data():
 
     assert sout.endswith("Duplicate packet!")
 
+
 def test_close_race():
     global _server
 
-    stress = 10
+    stress = 20
 
-    for i in range(0, stress):
+    for _ in range(0, stress):
         _server = make_server()
 
         threads = [0] * stress
 
-        for j in range(0, stress):
+        for i in range(0, stress):
             client = make_client_data(1, Command.DATA.value)
             _server._client_data_map[client.session_id] = client
 
             packet = util.pack(Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
-            def process():
-                _server.handle_packet(packet, client.address)
 
-            threads[j] = Thread(target=process)
+            threads[i] = Thread(target=_server.handle_packet, args=(packet, client.address))
 
         def close():
             _server.close()
@@ -509,8 +504,8 @@ def test_close_race():
             if i == stress // 2:
                 t1.start()
 
-        while not _server._done:
-            pass
-                    
+        for i in range(0, len(threads)):
+            threads[i].join()
+        t1.join()
 
     assert True
