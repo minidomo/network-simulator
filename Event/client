@@ -25,7 +25,7 @@ def handle_keyboard(handle, data: "bytes|None", error) -> None:  # pylint: disab
 def end_loop() -> None:
 
     def empty_event():
-        return
+        pass
 
     end_loop_async = pyuv.Async(_loop, empty_event)
 

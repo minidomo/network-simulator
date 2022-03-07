@@ -37,7 +37,7 @@ const time = (() => {
 const random = (lo, hi) => Math.floor(Math.random() * (hi - lo + 1) + lo);
 
 const config = {
-    inputFile: 'Dostoyevsky.txt',
+    inputFile: 'Thread/Dostoyevsky.txt',
 };
 
 (async () => {

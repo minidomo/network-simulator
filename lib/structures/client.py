@@ -2,11 +2,13 @@
 
 import socket
 import random
-from .. import util
+from abc import ABC, abstractclassmethod
 from ..constants import Command
+from .. import util
 from .. import constants
 
-class Client:
+
+class Client(ABC):
     """
     Create a client with a given server address and timeout interval.
     """
@@ -45,7 +47,7 @@ class Client:
         Returns
         -------
         bool
-            True if the client is waiting for hello, False otherwise
+            True if the client is waiting for hello, False otherwise.
         """
         return self._waiting_for_hello
 
@@ -56,24 +58,28 @@ class Client:
         Returns
         -------
         bool
-            True if the client is closed, False otherwise
+            True if the client is closed, False otherwise.
         """
         return self._closed
 
-    def _reset_timer(self) -> None:
-        """
-        Reset the timer so that it is not running.
-        """
-        if self._timer_active:
-            self._timer_active = False
+    # def _reset_timer(self) -> None:  # TODO name
+    #     """
+    #     Reset the timer so that it is not running.
+    #     """
+    #     if self._timer_active:
+    #         self._timer_active = False
 
-    def _start_timer(self) -> None:
-        """
-        Start the timer using the client's timeout_interval
-        """
-        self._timer_active = True
+    # def _start_timer(self) -> None:  # TODO name
+    #     """
+    #     Start the timer using the client's timeout_interval
+    #     """
+    #     self._timer_active = True
 
-    def _send_packet(self, command: int, data: "str|None" = None) -> bytes:
+    @abstractclassmethod
+    def _send(self, data: bytes) -> None:
+        pass
+
+    def _send_packet(self, command: int, data: "str|None" = None) -> None:
         """
         Sends a packet to the associated server of this client.
 
@@ -93,9 +99,31 @@ class Client:
         """
         encoded_data = util.pack(command, self._seq, self._session_id, data)
         self._seq += 1
-        return encoded_data
+        self._send(encoded_data)
 
-    def send_hello(self) -> None:
+    # def _send_packet(self, command: int, data: "str|None" = None) -> bytes:  # TODO fix name
+    #     """
+    #     Sends a packet to the associated server of this client.
+
+    #     This method will also increment the client's sequence number by one.
+
+    #     Parameters
+    #     ----------
+    #     command : int
+    #         The command integer value.
+    #     data : str | None
+    #         The string to send with the packet. Default value is None.
+
+    #     Returns
+    #     -------
+    #     bytes
+    #         The packet that was created
+    #     """
+    #     encoded_data = util.pack(command, self._seq, self._session_id, data)
+    #     self._seq += 1
+    #     return encoded_data
+
+    def send_hello(self) -> None:  # TODO name
         """
         Sends a HELLO packet to the associated server of this client.
 
@@ -106,7 +134,7 @@ class Client:
 
         self._send_packet(Command.HELLO.value)
 
-    def send_data(self, text: str) -> None:
+    def send_data(self, text: str) -> None:  # TODO name
         """
         Sends a DATA packet to the associated server of this client.
 
@@ -119,12 +147,12 @@ class Client:
         """
         if self._can_send_data:
             # start timer if not set
-            
+
             self._start_timer()
 
             self._send_packet(Command.DATA.value, text)
 
-    def send_goodbye(self) -> None:
+    def send_goodbye(self) -> None:  # TODO name
         """
         Sends a GOODBYE packet to the associated server of this client.
 
@@ -143,7 +171,7 @@ class Client:
 
             self._send_packet(Command.GOODBYE.value)
 
-    def signal_close(self) -> None:
+    def signal_close(self) -> None:  # TODO name
         """
         Sends a CLOSE signal to a thread that is waiting for a signal.
 
@@ -151,7 +179,7 @@ class Client:
         """
         pass
 
-    def hello_exchange(self, command) -> bool:
+    def hello_exchange(self, command) -> bool:  # TODO name
         """
         This method should only be called once
 

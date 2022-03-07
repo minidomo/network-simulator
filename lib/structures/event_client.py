@@ -53,22 +53,8 @@ class EventClient(Client):
                 self._timer.start(self.timed_out, self.timeout_interval, 0)
         return super()._start_timer()
 
-    def _send_packet(self, command: int, data: "str|None" = None) -> bytes:
-        """
-        Sends a packet to the associated server of this client.
-
-        This method will also increment the client's sequence number by one.
-
-        Parameters
-        ----------
-        command : int
-            The command integer value.
-        data : str | None
-            The string to send with the packet. Default value is None.
-        """
-        packet = super()._send_packet(command, data)
-        self._socket.send((self._server_ip_address, self._server_port), packet)
-        return packet
+    def _send(self, data: bytes) -> None:
+        self._socket.send((self._server_ip_address, self._server_port), data)
 
     def timed_out(self, handle=None) -> None:
         """
@@ -117,9 +103,9 @@ class EventClient(Client):
         self._close_cb()
 
     def handle_packet(self,
-                        handle=None,
-                        address: "tuple[str,int]" = None,
-                        flags=None,
-                        packet: bytes = None,
-                        error=None) -> None:
+                      handle=None,
+                      address: "tuple[str,int]" = None,
+                      flags=None,
+                      packet: bytes = None,
+                      error=None) -> None:
         super().handle_packet(packet, address)

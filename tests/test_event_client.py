@@ -16,7 +16,7 @@ _loop = pyuv.Loop.default_loop()
 def end_loop() -> None:
 
     def empty_event():
-        return
+        pass
 
     end_loop_async = pyuv.Async(_loop, empty_event)
 
