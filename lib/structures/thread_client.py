@@ -5,9 +5,7 @@ from threading import Lock
 from queue import Queue
 from time import time
 from . import Client
-from ..constants import Command
 from .. import constants
-from .. import util
 
 
 class ThreadClient(Client):
@@ -83,34 +81,20 @@ class ThreadClient(Client):
             self._can_send_data = False
         self._signal_queue.put(None)
 
-    def _send_packet(self, command: int, data: "str|None" = None) -> bytes:
-        """
-        Sends a packet to the associated server of this client.
+    def _send(self, data: bytes) -> None:
+        self._socket.sendto(data, (self._server_ip_address, self._server_port))
 
-        This method will also increment the client's sequence number by one.
-
-        Parameters
-        ----------
-        command : int
-            The command integer value.
-        data : str | None
-            The string to send with the packet. Default value is None.
-        """
-        packet = super()._send_packet(command, data)
-        self._socket.sendto(packet, (self._server_ip_address, self._server_port))
-        return packet
-
-    def _reset_timer(self) -> None:
+    def _try_stop_timer(self) -> None:
         with self._timestamp_lock:
             if self._timer_active:
                 self._timestamp = -1
-            super()._reset_timer()
+                self._timer_active = False
 
-    def _start_timer(self) -> None:
+    def _try_start_timer(self) -> None:
         with self._timestamp_lock:
-            if self._timestamp == -1:
+            if not self._timer_active:
                 self._timestamp = time()
-                super()._start_timer()
+                self._timer_active = True
 
     def send_data(self, text: str) -> None:
         with self._can_send_lock:
@@ -143,7 +127,7 @@ class ThreadClient(Client):
         with self._closed_lock:
             self._closed = True
 
-        self._reset_timer()
+        self._try_stop_timer()
 
         try:
             # this will unblock calls to socket.recvfrom
@@ -171,7 +155,7 @@ class ThreadClient(Client):
         if not self.closed():
             timeout = False
             with self._timestamp_lock:
-                timeout = self._timestamp != -1 and time() - self._timestamp > self.timeout_interval
+                timeout = self._timer_active and time() - self._timestamp > self.timeout_interval
             if timeout:
                 print("timed out")
                 # anytime we timeout, we're definitely not waiting for hello anymore

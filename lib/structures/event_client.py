@@ -3,10 +3,7 @@
 
 import pyuv
 from typing import Callable  # pylint: disable=unused-import
-from ..constants import Command
 from . import Client
-from .. import constants
-from .. import util
 
 
 class EventClient(Client):
@@ -42,16 +39,16 @@ class EventClient(Client):
 
         self._close_cb = close_cb
 
-    def _reset_timer(self) -> None:
+    def _try_stop_timer(self) -> None:
         if self._timer_active:
             self._timer.stop()
-        return super()._reset_timer()
+            self._timer_active = False
 
-    def _start_timer(self) -> None:
+    def _try_start_timer(self) -> None:
         if not self._timer_active:
             if self.timeout_interval > 0:
                 self._timer.start(self.timed_out, self.timeout_interval, 0)
-        return super()._start_timer()
+            self._timer_active = True
 
     def _send(self, data: bytes) -> None:
         self._socket.send((self._server_ip_address, self._server_port), data)
@@ -97,8 +94,7 @@ class EventClient(Client):
         self._closed = True
 
         self._socket.stop_recv()
-        self._timer.stop()
-        self._timer_active = False
+        self._try_stop_timer()
 
         self._close_cb()
 

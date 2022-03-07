@@ -2,7 +2,7 @@
 
 import socket
 import random
-from abc import ABC, abstractclassmethod
+from abc import ABC, abstractmethod
 from ..constants import Command
 from .. import util
 from .. import constants
@@ -40,6 +40,26 @@ class Client(ABC):
         self.timeout_interval = timeout_interval
         self._timer_active = False
 
+    @abstractmethod
+    def _try_stop_timer(self) -> None:
+        pass
+
+    @abstractmethod
+    def _try_start_timer(self) -> None:
+        pass
+
+    @abstractmethod
+    def _send(self, data: bytes) -> None:
+        pass
+
+    @abstractmethod
+    def signal_close(self) -> None:
+        pass
+
+    @abstractmethod
+    def close(self) -> None:
+        pass
+
     def is_waiting_for_hello(self) -> bool:
         """
         Returns True if the client is waiting for hello, False otherwise.
@@ -62,23 +82,6 @@ class Client(ABC):
         """
         return self._closed
 
-    # def _reset_timer(self) -> None:  # TODO name
-    #     """
-    #     Reset the timer so that it is not running.
-    #     """
-    #     if self._timer_active:
-    #         self._timer_active = False
-
-    # def _start_timer(self) -> None:  # TODO name
-    #     """
-    #     Start the timer using the client's timeout_interval
-    #     """
-    #     self._timer_active = True
-
-    @abstractclassmethod
-    def _send(self, data: bytes) -> None:
-        pass
-
     def _send_packet(self, command: int, data: "str|None" = None) -> None:
         """
         Sends a packet to the associated server of this client.
@@ -91,7 +94,7 @@ class Client(ABC):
             The command integer value.
         data : str | None
             The string to send with the packet. Default value is None.
-        
+
         Returns
         -------
         bytes
@@ -101,40 +104,17 @@ class Client(ABC):
         self._seq += 1
         self._send(encoded_data)
 
-    # def _send_packet(self, command: int, data: "str|None" = None) -> bytes:  # TODO fix name
-    #     """
-    #     Sends a packet to the associated server of this client.
-
-    #     This method will also increment the client's sequence number by one.
-
-    #     Parameters
-    #     ----------
-    #     command : int
-    #         The command integer value.
-    #     data : str | None
-    #         The string to send with the packet. Default value is None.
-
-    #     Returns
-    #     -------
-    #     bytes
-    #         The packet that was created
-    #     """
-    #     encoded_data = util.pack(command, self._seq, self._session_id, data)
-    #     self._seq += 1
-    #     return encoded_data
-
-    def send_hello(self) -> None:  # TODO name
+    def send_hello(self) -> None:
         """
         Sends a HELLO packet to the associated server of this client.
 
         This method will also set a timestamp for when this packet was sent to be used in timed_out().
         """
         # start timer
-        self._start_timer()
-
+        self._try_start_timer()
         self._send_packet(Command.HELLO.value)
 
-    def send_data(self, text: str) -> None:  # TODO name
+    def send_data(self, text: str) -> None:
         """
         Sends a DATA packet to the associated server of this client.
 
@@ -146,13 +126,12 @@ class Client(ABC):
             The string to send with the packet.
         """
         if self._can_send_data:
+
             # start timer if not set
-
-            self._start_timer()
-
+            self._try_start_timer()
             self._send_packet(Command.DATA.value, text)
 
-    def send_goodbye(self) -> None:  # TODO name
+    def send_goodbye(self) -> None:
         """
         Sends a GOODBYE packet to the associated server of this client.
 
@@ -162,8 +141,8 @@ class Client(ABC):
         if self._can_send_goodbye:
 
             # start timer
-            self._reset_timer()
-            self._start_timer()
+            self._try_stop_timer()
+            self._try_start_timer()
 
             # prevent the client from sending goodbye and data packets
             self._can_send_goodbye = False
@@ -171,21 +150,13 @@ class Client(ABC):
 
             self._send_packet(Command.GOODBYE.value)
 
-    def signal_close(self) -> None:  # TODO name
-        """
-        Sends a CLOSE signal to a thread that is waiting for a signal.
-
-        Calling this method will prevent the client from sending goodbye and data packets to the server.
-        """
-        pass
-
     def hello_exchange(self, command) -> bool:  # TODO name
         """
         This method should only be called once
 
         Handles a HELLO packet if we were waiting for a HELLO from the server.
 
-        If any other packet was received while we are waiting for a HELLO, 
+        If any other packet was received while we are waiting for a HELLO,
         a protocol error occured and the client closes
 
         Returns
@@ -196,12 +167,13 @@ class Client(ABC):
         if self._waiting_for_hello:
             self._waiting_for_hello = False
 
-            self._reset_timer()
+            self._try_stop_timer()
 
             if command != Command.HELLO.value:
                 print(f"expected hello, received {command}")
                 self.send_goodbye()
                 self.signal_close()
+
             return True
         return False
 
@@ -212,7 +184,7 @@ class Client(ABC):
         # only reset timestamp for alive when client is not in closing state
         # if _can_send_goodbye is False, client is in closing state
         if self._can_send_goodbye:
-            self._reset_timer()
+            self._try_stop_timer()
 
     def handle_packet(self, packet: bytes, address: "tuple[str,int]") -> None:  # pylint: disable=unused-argument
         """
