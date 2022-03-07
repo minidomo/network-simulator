@@ -12,7 +12,6 @@ _client = None
 
 
 def handle_keyboard(handle, data: "bytes|None", error) -> None:  # pylint: disable=unused-argument
-
     if _client is not None and not _client.closed() and not _client.is_waiting_for_hello():
         text = None if data is None else data.decode("utf-8", "replace")
         # Terminates server if input is EOF or "q"
@@ -25,7 +24,7 @@ def handle_keyboard(handle, data: "bytes|None", error) -> None:  # pylint: disab
 def end_loop() -> None:
 
     def empty_event():
-        return
+        pass
 
     end_loop_async = pyuv.Async(_loop, empty_event)
 

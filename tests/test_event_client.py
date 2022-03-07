@@ -16,7 +16,7 @@ _loop = pyuv.Loop.default_loop()
 def end_loop() -> None:
 
     def empty_event():
-        return
+        pass
 
     end_loop_async = pyuv.Async(_loop, empty_event)
 
@@ -343,6 +343,29 @@ class TestHelloExchange:
         assert client._waiting_for_hello is False
         assert client._can_send_data is True
         assert client._can_send_goodbye is True
+
+    def test_stdin_q(self):
+        client = make_client("hello")
+
+        def runnable(handle=None):
+
+            client.send_hello()
+
+            # eof/q
+            client.send_goodbye()
+
+            end_loop()
+
+        f = pyuv.Async(_loop, runnable)
+        f.send()
+
+        _loop.run()
+
+        assert client._seq == 2
+        assert client._timer_active is True
+        assert client._waiting_for_hello is True
+        assert client._can_send_data is False
+        assert client._can_send_goodbye is False
 
 
 class TestReady:
