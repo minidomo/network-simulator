@@ -22,6 +22,7 @@ def make_client(stage: str) -> ThreadClient:
             pass
         else:
             client._timestamp = time.time()
+            client._timer_active = True
             client._seq = 2
             client._can_send_goodbye = False
             client._can_send_data = False
