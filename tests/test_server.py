@@ -11,7 +11,7 @@ from threading import Thread
 
 
 def make_server() -> Server:
-    portnum = random.randint(60000, 64000)
+    portnum = 62542
     bf = BufferedWriter(None, 5000000, "utf-8")
     server = Server(portnum, bf, 1)
 
@@ -20,13 +20,17 @@ def make_server() -> Server:
 
 _server = make_server()
 
-
 def reset_server(server: Server):
-    server._client_data_map.clear()
-    queue = server._bf._queue
-    size = queue.qsize()
-    for _ in range(size):
-        queue.get()
+    global _server
+    _server.close()
+    _server = make_server()
+
+# def reset_server(server: Server):
+#     server._client_data_map.clear()
+#     queue = server._bf._queue
+#     size = queue.qsize()
+#     for _ in range(size):
+#         queue.get()
 
 
 def make_address(hostname: str = None, portnum: int = None) -> "tuple[str,int]":
@@ -399,7 +403,10 @@ def test_timeout_no_remove():
     _server.handle_packet(packet, client.address)
     _server.prune_inactive_clients()
 
+    sout: str = _server._bf._queue.get()
+
     assert len(_server._client_data_map) == 1
+    assert sout.endswith("something here")
 
 
 def test_timeout_remove():
@@ -413,8 +420,31 @@ def test_timeout_remove():
     time.sleep(_server.timeout_interval)
     _server.prune_inactive_clients()
 
-    assert len(_server._client_data_map) == 0
+    sout: str = _server._bf._queue.get()
+    sout: str = _server._bf._queue.get()
 
+    assert len(_server._client_data_map) == 0
+    assert sout.endswith("Session Closed")
+
+def test_timeout_then_goodbye():
+    reset_server(_server)
+    client = make_client_data(1, Command.DATA.value)
+    _server._client_data_map[client.session_id] = client
+
+    packet = util.pack(Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
+
+    _server.handle_packet(packet, client.address)
+    time.sleep(_server.timeout_interval)
+    _server.prune_inactive_clients()
+
+    packet = util.pack(Command.GOODBYE.value, client.prev_packet_num + 2, client.session_id)
+    _server.handle_packet(packet, client.address)
+
+    sout: str = _server._bf._queue.get()
+    sout: str = _server._bf._queue.get()
+
+    assert len(_server._client_data_map) == 0
+    assert sout.endswith("Session Closed")
 
 def test_server_close_clients_disconnect():
     reset_server(_server)
@@ -429,29 +459,30 @@ def test_server_close_clients_disconnect():
 
 
 def test_server_duplicate_seq_different_data():
-    _server = make_server() # was closed in previous test
     reset_server(_server)
 
     client = make_client_data(1, Command.DATA.value)
     _server._client_data_map[client.session_id] = client
 
-    packet = util.pack(Command.DATA.value, client.prev_packet_num + 1, client.session_id, "something here")
+    packet = util.pack(Command.DATA.value, 2, client.session_id, "something here")
+    res = _server.handle_packet(packet, client.address)
+
+    packet = util.pack(Command.DATA.value, 2, client.session_id, "something else")
     res = _server._determine_response(packet, client.address)
 
-    packet = util.pack(Command.DATA.value, client.prev_packet_num, client.session_id, "something else")
-    res = _server._determine_response(packet, client.address)
+    assert res == Response.IGNORE
 
+    sout: str = _server._bf._queue.get()
     sout: str = _server._bf._queue.get()
 
     _server.close()
 
-    assert res == Response.IGNORE
     assert sout.endswith("Duplicate packet!")
 
 def test_close_race():
     global _server
 
-    stress = 300
+    stress = 100
 
     for i in range(0, stress):
         _server = make_server()
@@ -478,7 +509,7 @@ def test_close_race():
             if i == stress // 2:
                 t1.start()
 
-        while not _server.closed():
+        while not _server._done:
             pass
                     
 

@@ -40,6 +40,8 @@ class Server:
         self._closed = False
         self._closed_lock = Lock()
 
+        self._done = False
+        
         self.timeout_interval = timeout_interval
 
     def closed(self) -> bool:
@@ -291,6 +293,9 @@ class Server:
         except:  # pylint: disable=bare-except
             pass
         self._socket.close()
+
+        self._done = True
+
 
     def receive_packet(self) -> "tuple[bytes,tuple[str,int]]":
         """
